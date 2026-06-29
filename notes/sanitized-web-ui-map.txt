@@ -1,0 +1,73 @@
+Relevant committed history, sanitized labels only by commit subject:
+
+8d23ada Modularize optional organs and fix command side effects
+dfec4c3 Remove local web surfaces from readiness branch
+eadd1f0 Add Live webhost WIP branch
+9738544 Harden live webhost publishing affordances
+e17363d core: reconcile runtime syntax and energy membrane
+e11f494 webhost: OmegaOS surface + event membrane (flock+rotation) + privacy gating
+c1d6978 omegaos: curation lens — Omega's real mind, curated by her, shown to family
+
+Sanitized diffstat for web UI area against upstream base:
+
+ src/webhost.py                                 | 7219 ++++++++++++++++++++++++
+ web/omega-os-claude/index.html                 |   82 +
+ web/omega-os-claude/src/Agenda.jsx             |   67 +
+ web/omega-os-claude/src/Anatomy.jsx            |  251 +
+ web/omega-os-claude/src/App.jsx                | 1224 ++++
+ web/omega-os-claude/src/Attention.jsx          |   88 +
+ web/omega-os-claude/src/ChatWindow.jsx         |  293 +
+ web/omega-os-claude/src/ContentPlaceholder.jsx |   24 +
+ web/omega-os-claude/src/CoreBeams.jsx          |  206 +
+ web/omega-os-claude/src/DevConsole.jsx         |  213 +
+ web/omega-os-claude/src/EnterHint.jsx          |   12 +
+ web/omega-os-claude/src/ImagePlaceholder.jsx   |   16 +
+ web/omega-os-claude/src/InputRidge.jsx         |  152 +
+ web/omega-os-claude/src/Inspector.jsx          |  196 +
+ web/omega-os-claude/src/Login.jsx              |  522 ++
+ web/omega-os-claude/src/LoremPlaceholder.jsx   |   11 +
+ web/omega-os-claude/src/OmegaCommands.jsx      |  263 +
+ web/omega-os-claude/src/OmegaCore.jsx          |   21 +
+ web/omega-os-claude/src/OmegaSurface.jsx       |  320 ++
+ web/omega-os-claude/src/OmegaWindow.jsx        |  435 ++
+ web/omega-os-claude/src/ReasoningReceipt.jsx   |  115 +
+ web/omega-os-claude/src/Room.jsx               |   70 +
+ web/omega-os-claude/src/StatusDock.jsx         |   53 +
+ web/omega-os-claude/src/Taskbar.jsx            |   31 +
+ web/omega-os-claude/src/Timeline.jsx           |  106 +
+ web/omega-os-claude/src/anatomyGraph.js        |  582 ++
+ web/omega-os-claude/src/anatomyPulses.js       |  471 ++
+ web/omega-os-claude/src/liveOmegaBridge.js     |  160 +
+ web/omega-os-claude/src/mockOmega.js           |  235 +
+ web/omega-os-claude/src/omegaCatalog.js        |  113 +
+ web/omega-os-claude/src/omegaEvents.js         |  125 +
+ web/omega-os-claude/src/omegaIntents.js        |   93 +
+ web/omega-os-claude/src/omegaScheduler.js      |  347 ++
+ web/omega-os-claude/src/omegaSession.js        |  111 +
+ web/omega-os-claude/src/omegaState.js          |  115 +
+ web/omega-os-claude/src/omegaSurfaceAtoms.js   |  127 +
+ web/omega-os-claude/src/r3d/Renderer3D.jsx     |   70 +
+ web/omega-os-claude/src/r3d/bloom.js           |  311 +
+ web/omega-os-claude/src/r3d/cameraRig.js       |  187 +
+ web/omega-os-claude/src/r3d/core.js            |   22 +
+ web/omega-os-claude/src/r3d/fluidInterior.js   |  258 +
+ web/omega-os-claude/src/r3d/layout.js          |  300 +
+ web/omega-os-claude/src/r3d/liquidMetal.js     | 1050 ++++
+ web/omega-os-claude/src/r3d/mirrorBall.js      |  707 +++
+ web/omega-os-claude/src/r3d/positions.js       |  279 +
+ web/omega-os-claude/src/r3d/scene.js           | 2467 ++++++++
+ web/omega-os-claude/src/skillRegistry.js       |   74 +
+ web/omega-os-claude/src/useSpring.jsx          |   55 +
+ web/omega-os-claude/styles.css                 | 3337 +++++++++++
+ web/omega-os-claude/tweaks-panel.jsx           |  530 ++
+ web/omega-os/index.html                        |   43 +
+ web/omega-os/package-lock.json                 | 1864 ++++++
+ web/omega-os/package.json                      |   21 +
+ web/omega-os/src/api/OmegaApi.js               |   49 +
+ web/omega-os/src/main.jsx                      |   91 +
+ web/omega-os/src/scene/OmegaRoom.jsx           |  219 +
+ web/omega-os/src/scene/SplineStage.js          |  173 +
+ web/omega-os/src/styles.css                    |  460 ++
+ web/omega-os/src/ui/WindowManager.js           |  272 +
+ web/omega-os/vite.config.js                    |   11 +
+ 60 files changed, 27319 insertions(+)

@@ -1,50 +1,39 @@
-# OmegaClaw Highly Experimental
+# Local Web UI / OmegaOS Surface Experiment
 
-This repository is a public inspection shelf for highly experimental OmegaClaw work from Jon's live research tree.
+This branch is intentionally sanitized.
 
-It is not a clean upstream patch stack. It is not production-ready. It is not expected to apply cleanly to ASI Alliance OmegaClaw-Core or to the clean Patch 1-5 public stack.
+The original local web UI patch contained private family-facing labels and a private deployment domain, so the raw patch payload is not published here.
 
-The purpose is to make the experimental areas visible as separate branches, each with its own README and, where safe, a generated patch payload or inspection notes.
+## What This Experiment Was
 
-## Clean Patch Stack
+A local-only webhost/admin/workbench/OmegaOS surface experiment, including:
 
-For the cleaner PR-shaped work, use:
+- webhost/admin/workbench pages
+- spatial/OmegaOS UI prototype pieces
+- local public/gallery surface ideas
+- web session/admin-token machinery
+- privacy-gated publishing concepts
+- browser/proxy/display experiments
+- diagnostics and local runtime status pages
 
-- `physixCN/OmegaClaw-Core-PatchStack`
+## Why The Raw Patch Is Withheld
 
-That repo has `main` as ASI core and cumulative PR branches for Patch 1 through Patch 5c, README, and benchmark harness.
+This area is a personal deployment/product surface, not a core cognition patch. It mixed general architectural ideas with family/private web surface details. Publishing the raw patch would expose private labels that are irrelevant to upstream review.
 
-## Experimental Branches
+## Review Guidance
 
-Old generated review bundles, uploaded as patch text:
+If this is revisited later, split it into separate, sanitized patches:
 
-- `exp-00-repo-boundary-runtime-state`
-- `exp-01a-syntax-command-membrane`
-- `exp-01b-runtime-memory-context-boundary`
-- `exp-01c-provider-runtime-energy`
-- `exp-01d-symbolic-reasoning-space-skills`
-- `exp-02a-assume-symbolic-graph-engine`
-- `exp-02b-assume-fabricpc-daemon-membrane`
-- `exp-02c-assume-metta-skill-mutation-review`
-- `exp-02d-assume-demo-space-tests`
-- `exp-03-attention-ecan-lite-immune-organ`
-- `exp-04a-module-contract`
-- `exp-04b-body-skill-surface`
-- `exp-04c-communication-channels`
-- `exp-04d-situated-senses-apps`
-- `exp-04e-shareable-runtime-modules`
-- `exp-04f-body-composition-loader`
-- `exp-04g-agentverse-remote-agent-organ`
-- `exp-05-review-benchmark-suite`
-- `exp-90-local-web-ui-not-for-upstream`
+1. generic local webhost/admin surface
+2. generic privacy-gated publishing membrane
+3. generic browser/proxy/display membrane
+4. optional OmegaOS UI shell
+5. deployment-specific family/private content kept out of public repos
 
-Later live-only navigation branches:
+## Source
 
-- `exp-live-omegaos-whatsapp-hardlock`
-- `exp-live-webhost-wip-browser-oauth`
-- `exp-appliance-installers`
-- `exp-outer-deployment-wrapper`
+Source remains only in the private/live tree:
 
-## Caveat
+- `/home/jon/OmegaClaw/repos/OmegaClaw-Core`
 
-This repo is intentionally messy in subject matter, but each branch is labelled. Treat it as a research archive and discussion aid, not as a merge proposal.
+Do not publish the raw old `90-local-web-ui-not-for-upstream.patch` without a dedicated privacy pass.
