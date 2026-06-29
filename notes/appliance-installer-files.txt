@@ -1,0 +1,16 @@
+M	Dockerfile
+A	install/README.md
+A	install/installer_common.py
+A	install/macos/Install OmegaClaw.command
+A	install/omega_appliance.py
+A	install/windows/Install OmegaClaw.cmd
+A	install/windows/Install-OmegaClaw.ps1
+M	requirements.txt
+A	scripts/appliance/omega-env
+A	scripts/appliance/omega-logs
+A	scripts/appliance/omega-loop-exec
+A	scripts/appliance/omega-start
+A	scripts/appliance/omega-status
+A	scripts/appliance/omega-stop
+A	scripts/appliance/omega-webhost-exec
+M	scripts/omegaclaw

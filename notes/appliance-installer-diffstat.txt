@@ -1,0 +1,17 @@
+ Dockerfile                              |  13 +-
+ install/README.md                       |  43 +++
+ install/installer_common.py             | 610 ++++++++++++++++++++++++++++++++
+ install/macos/Install OmegaClaw.command | 240 +++++++++++++
+ install/omega_appliance.py              | 205 +++++++++++
+ install/windows/Install OmegaClaw.cmd   |   5 +
+ install/windows/Install-OmegaClaw.ps1   |  53 +++
+ requirements.txt                        |  14 +-
+ scripts/appliance/omega-env             |  31 ++
+ scripts/appliance/omega-logs            |   9 +
+ scripts/appliance/omega-loop-exec       |  27 ++
+ scripts/appliance/omega-start           |  35 ++
+ scripts/appliance/omega-status          |  11 +
+ scripts/appliance/omega-stop            |   9 +
+ scripts/appliance/omega-webhost-exec    |   8 +
+ scripts/omegaclaw                       |  14 +-
+ 16 files changed, 1302 insertions(+), 25 deletions(-)

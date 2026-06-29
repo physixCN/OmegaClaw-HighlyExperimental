@@ -1,0 +1,79 @@
+28a8a02 new dockerfile
+8f86397 updated dockerfile
+703d33c updated dockerfile
+ea35e4e Fix Rust toolchain version to make build reproducible
+8e505a6 Use fully qualified image reference to the base image
+067e607 Don't get history to improve container building speed
+055c80e Move faiss building dir to the root
+ced6ab8 Add os and build stages to decrease resulting image size
+00cc935 updated dockerfile w run command
+e9bb706 comment out MORK related and pytorch for now
+e28f302 startup CMD
+1277c56 firewall rules
+d2ff4eb firewall rules
+540b207 Copy MeTTaClaw files from the context directory
+e4c962a comment
+fee762a rough start for IRC image
+ef1c4e6 changed to Kevin version
+4628d8b stop Max stream of thought improve experience
+a69a4b9 stop write access to prompt.txt
+11884a9 Implement tavily and technical analysis skills via agentverse
+8458934 rebranding MeTTaClaw to OmegaClaw
+0a73ddb allow it to use git and download into repos
+2e00557 Preseed repo paths to avoid runtime git clone
+bd1e51d Fix chromadb and agentverse integration
+bbcf638 Move installation into build phase to cleaup runtime
+316bffb default to Local embeddings for now
+be944b5 cleanup naming omega/metta claw, switch to positional parms
+f4bf5ea Changes to allow external memory and repeated auth tokens
+290b99b set pull always to guarantee current :latest
+e18a833 Merge command line and interactive scripts
+0b8e40f Fixup omegaclaw clean command
+2a0dbdc Use always instead of newer which is Podman specific
+c5947bd Pass API key via environment variable to be more secure
+5485e87 Add Python3 dependencies as a single file
+166ade5 Verify README.md second pass
+d288670 Merge branch 'main' into add-noninteractive-management-script
+486d604 Merge branch 'main' of github.com:asi-alliance/OmegaClaw-Core
+662bc37 local server env variable for docker
+2b1208a Add ASI1 integration
+448ef05 support building a local container starting with an existing chromadb vector store
+f306193 Add Telegram channel support with token-only bootstrap
+28302b2 Merge branch 'main' into asi1-integration
+fb44a98 Merge remote-tracking branch 'asi/main' into provider-registry
+f2cf3a8 Fix start script
+d20cbc5 Fix fail on starting locally build image
+97a612c Merge branch 'main' into main
+1382318 Add an example of the LLM mock usage
+73b1f89 Merge remote-tracking branch 'asi/main' into llm-mock
+f6ad3f9 Add OpenRouter/GLM model into the start script
+ae093a3 Add Slack communication channel support
+a49d447 Allow Slack channel auto-bind via auth message
+6cb4e30 Handle Slack 429 backoff and reduce auto-bind polling load
+216f944 Merge branch 'main' into fix-scripts
+f25ef0d Lower Slack poll interval defaults in startup script
+6181bbb Merge branch 'main' into feature/slack
+0cd3998 fix
+6603a54 Add test communication channel
+dcfb42b Fix API token check on macOS bash
+dd520fd Merge branch 'main' into fix-macos-api-token-check
+b54c076 Add interactive source installers
+7df1de8 Clarify macOS installer prerequisite flow
+13b763b Personalize installed agent identity
+e91be25 Harden interactive installers
+12e624b Require explicit primary channel install choice
+1407077 Keep optional system deps module scoped
+3f5bc10 Add no-admin macOS installer fallback
+cafa226 Install SWI-Prolog from official macOS bundle
+4d71dee Allow installer bootstrap workspace directories
+857421a Stop printing generated auth secret
+8ab86cc Install visible macOS launcher
+59befc4 Repair macOS local Janus linkage
+4e57429 Set embedded Python executable for macOS
+4b30461 Load install config from environment
+84e9d3d Fix Telegram first-run binding
+3e07339 Use local installed core at runtime
+9d47bae Restore PeTTa library registration
+1773a50 Retire legacy channel and no-agentverse facades
+26dda38 Stabilize loop attention and channel membranes
+26bfe2e appliance: OmegaOS kiosk installer (WIP - known path/idempotency issues)
