@@ -1,0 +1,3337 @@
+/* ─── WebGL renderer canvas ────────────────────────────────────
+   The Three.js renderer (src/r3d/) mounts into this canvas when
+   enabled by the Renderer tweak. Fixed full-viewport, pointer
+   events off so the CSS room / windows / ridge stay interactive
+   during the side-by-side development phase. */
+.omega-3d-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  /* Above the CSS surfaces (z 0–2) and core-beams (z 2), below
+     the stage (core + ridge + windows, z 3+). This way the new
+     substrate sits "in front of the walls but behind the core"
+     so we can see both layers reading the same spatial data. */
+  z-index: 2;
+  /* Energy field-grade is driven imperatively from App (canvas.style.filter)
+     because CSS filters don't reliably recompute from an inherited custom
+     property; the transition here still eases the JS-set value so the
+     chamber settles (asleep) or wakes (creative) smoothly. */
+  filter: brightness(1) saturate(1);
+  transition: filter 1.8s ease;
+}
+
+/* WebGL mode: the room is just a transparent interaction layer over
+   the field, so the core + windows (inside .room) render ABOVE the
+   canvas instead of being trapped beneath it by .room's isolated
+   stacking context. Fixes the centered-window-over-core bleed. */
+:root[data-renderer="webgl"] .room { background: transparent; }
+:root[data-renderer="webgl"] .omega-3d-canvas { z-index: 0; }
+
+/* When the WebGL renderer is showing (default), the CSS chamber
+   does not mount at all. These rules cover the legacy CSS mode and
+   the rare moment the user toggles between renderers. */
+:root[data-renderer="webgl"] .surface,
+:root[data-renderer="webgl"] .room-vignette,
+:root[data-renderer="webgl"] .room-edges,
+:root[data-renderer="webgl"] .core {
+  display: none;
+}
+
+/* ─── Dev console (renders inside an OmegaWindow) ──────────────
+   Monospace, no chrome — the window provides the chrome. Fixed
+   layout: actions row at top, scrollable output in the middle,
+   input at the bottom. Designed to fit a ~500×380 window. */
+.devconsole-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: oklch(0.28 0.020 230);
+  background: oklch(0.985 0.005 220);
+  border-radius: inherit;
+  overflow: hidden;
+}
+.devconsole-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid oklch(0.85 0.012 220 / 0.55);
+  background: oklch(0.98 0.006 220);
+}
+.devconsole-actions button {
+  appearance: none;
+  border: 0;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  color: oklch(0.28 0.020 230);
+  background: oklch(0.92 0.012 220);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.devconsole-actions button:hover {
+  background: oklch(0.87 0.020 220);
+}
+.devconsole-out {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: oklch(0.985 0.005 220);
+}
+.devconsole-hint {
+  color: oklch(0.55 0.020 230 / 0.7);
+  font-style: italic;
+}
+.devconsole-entry { margin-bottom: 10px; }
+.devconsole-src {
+  display: flex;
+  gap: 6px;
+  color: oklch(0.40 0.025 235);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.devconsole-who {
+  flex: 0 0 auto;
+  color: oklch(0.55 0.020 230 / 0.7);
+  font-weight: 500;
+  min-width: 14px;
+}
+/* Highlight the AI's lines so you can spot them in a shared session. */
+.devconsole-entry.who-ai .devconsole-src {
+  color: oklch(0.32 0.10 230);
+}
+.devconsole-entry.who-ai .devconsole-who {
+  color: oklch(0.45 0.18 230);
+}
+.devconsole-result {
+  margin: 2px 0 0;
+  padding: 0;
+  background: none;
+  color: oklch(0.30 0.022 220);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+}
+.devconsole-err {
+  margin-top: 2px;
+  color: oklch(0.50 0.18 25);
+}
+.devconsole-prompt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-top: 1px solid oklch(0.85 0.012 220 / 0.55);
+  background: oklch(0.99 0.004 220);
+}
+.devconsole-caret {
+  color: oklch(0.55 0.020 230 / 0.75);
+}
+.devconsole-input {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: oklch(0.20 0.020 230);
+  font: inherit;
+  flex: 1;
+  outline: none;
+  padding: 4px 0;
+}
+.devconsole-input::placeholder {
+  color: oklch(0.55 0.020 230 / 0.55);
+}
+
+/* ─── Synchronised lighting ─────────────────────────────────────
+   --glow-hue is now driven by the heartbeat: each beat sets the hue
+   to the primary target's family colour. A CSS transition smooths
+   between beats so the rear glow eases from one space's hue to the
+   next rather than snapping. The old auto-cycling animation is
+   replaced by this beat-driven model. */
+@property --glow-hue {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 215;
+}
+
+/* --bloom is typed so the filter chain interpolates SMOOTHLY when
+   it transitions. Untyped custom properties are treated as strings
+   and downstream `transition: filter` does not animate cleanly,
+   producing micro-snaps during decay (visible as "flicker"). */
+@property --bloom {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+:root {
+  --glow-hue: 215;
+  --chamber-brightness: 1;
+  --chamber-saturate: 1;
+  transition: --glow-hue 900ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─── Omega Room — tunable tokens ─────────────────────────────── */
+:root {
+  /* Palette — essentially pure white with a whisper of cyan-blue.
+     All hues at 220 (cool), chroma kept low (≤0.014) so it never
+     reads as "tinted" — it just feels slightly cold/clinical. */
+  --white:           oklch(0.992 0.005 220);
+  --back-wall:       oklch(0.945 0.012 220);
+  --side-near:       oklch(0.975 0.008 220);
+  --side-far:        oklch(0.935 0.013 220);
+  --floor-near:      oklch(0.988 0.007 220);
+  --floor-far:       oklch(0.930 0.013 220);
+  --ceil-near:       oklch(0.962 0.009 220);
+  --ceil-far:        oklch(0.910 0.014 220);
+  --edge:            oklch(0.78  0.020 220 / 0.38);
+  --edge-soft:       oklch(0.78  0.020 220 / 0.16);
+
+  /* Room geometry — single source of truth for the perspective box.
+     Back wall lives between (--bx1,--by1) and (--bx2,--by2). */
+  --bx1: 36%;
+  --bx2: 64%;
+  --by1: 30%;
+  --by2: 70%;
+
+  /* Core — same cool palette, sphere is essentially white.
+     --core-size is overrideable inline from Tweaks. The core/hint
+     slot positions are set inline on the elements by App.jsx
+     (spring-driven), so no CSS positioning vars are needed here. */
+  --core-size:        clamp(110px, 14vmin, 200px);
+  --omega-opacity:    1;
+  --core-base:        oklch(0.965 0.008 220);
+  --core-base-deep:   oklch(0.880 0.016 225);
+  --core-highlight:   oklch(0.998 0.004 220);
+  --core-rim-shadow:  oklch(0.62  0.028 230 / 0.45);
+  --core-cast:        oklch(0.55  0.030 230 / 0.20);
+
+  /* Core inner glow + aura — push brightness further. Higher chroma
+     so the cyan reads against the cool white room, plus stronger
+     saturate/brightness in the hue-cycle filter (see keyframes). */
+  --glow-cool:        oklch(0.94  0.150 var(--glow-hue) / 0.95);
+  --glow-cool-soft:   oklch(0.96  0.090 var(--glow-hue) / 0.55);
+  --aura-core:        oklch(0.95  0.170 var(--glow-hue) / 0.95);
+  --aura-mid:         oklch(0.96  0.110 var(--glow-hue) / 0.55);
+
+  /* Morphed window — a neumorphic panel that the sphere becomes.
+     Cast + emboss alphas pushed up for stronger depth. */
+  --window-face-top:  oklch(0.965 0.011 220);
+  --window-face-bot:  oklch(0.920 0.014 220);
+  --window-cast:      oklch(0.50  0.025 230 / 0.42);
+  --window-cast-soft: oklch(0.55  0.022 230 / 0.26);
+  --window-emboss-hi: oklch(1.00  0.003 220 / 0.95);
+  --window-emboss-lo: oklch(0.50  0.028 230 / 0.42);
+
+  /* Omega emboss — cooler shadows so it carves into the white surface. */
+  --omega-shadow:     oklch(0.65  0.020 225 / 0.30);
+  --omega-light:      oklch(1.00  0.003 220 / 0.85);
+
+  /* Screen / slab — a slim 3D screen that grows up out of the
+     floor. Bottom is intentionally seamless: same colour as the
+     floor, flat corners, no cast shadow. Top + sides carry the
+     material cues. */
+  --ridge-w:          clamp(480px, 64vw, 820px);
+  --ridge-max-h:      360px;
+  --ridge-pad-x:      44px;
+  --ridge-pad-y:      2px;
+  --ridge-radius:     12px;
+  --ridge-face-top:   oklch(0.972 0.010 220);
+  /* Match --floor-near so the bottom of the slab fades into the
+     floor without a visible seam. */
+  --ridge-face-bot:   oklch(0.988 0.007 220);
+  --ridge-highlight:  oklch(1.000 0.003 220 / 0.90);
+  --ridge-rim-light:  oklch(1.000 0.003 220 / 0.45);
+  --ridge-cast:       oklch(0.50  0.030 230 / 0.35);
+  --ridge-cast-soft:  oklch(0.55  0.025 230 / 0.18);
+  --ridge-inset:      oklch(0.62  0.025 230 / 0.30);
+  --ridge-bezel:      oklch(0.78  0.020 225 / 0.35);
+
+  /* Text */
+  --ink-faint:        oklch(0.52  0.020 225 / 0.55);
+  --ink-soft:         oklch(0.40  0.022 225 / 0.80);
+
+  /* Type */
+  --serif: "Iowan Old Style", "Palatino Linotype", "Palatino",
+           "Book Antiqua", "URW Palladio L", Georgia, serif;
+
+  /* Motion */
+  --breath-dur:  6.0s;
+  --glow-dur:    7.3s;
+  --hint-dur:    5.2s;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--serif);
+  color: var(--ink-soft);
+  background: var(--white);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ─── Anatomy embossing ─────────────────────────────────────────
+   Full typed hypergraph rendered on each surface. One SVG per
+   surface; every node is a <circle>, every same-surface edge is a
+   <path>. The SVG fills the surface and inherits the 3D rotation,
+   so atoms sit ON the wall/floor/ceiling. Labels are plain text,
+   shown only on hover. */
+.anatomy {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.anatomy-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  overflow: visible;
+}
+
+/* Vein tube — two stacked strokes per edge so each link reads as a
+   tube half-sunk into the surface. The wider .vein-base is the seam
+   shadow (where the tube enters the wall); the narrower .vein-lit
+   sits offset up-left, catching light on the upper hemisphere. */
+.vein {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  /* Default: nearly invisible. The renderer sets --vein-active to a
+     0..1 value when thought is passing through the link (both
+     endpoints bloomed). At rest the multiplier is 0 → opacity floor
+     leaves only a hint. */
+  opacity: calc(0.06 + 0.94 * var(--vein-active, 0));
+  transition: opacity 240ms ease-out;
+}
+.vein-base {
+  stroke: oklch(0.55 0.10 80 / 0.40);
+  stroke-width: calc(0.28 * var(--vein-thickness, 1));
+}
+.vein-lit {
+  stroke: oklch(0.95 0.10 85 / 0.65);
+  stroke-width: calc(0.14 * var(--vein-thickness, 1));
+  transform: translate(-0.05px, -0.05px);
+}
+
+/* Per-kind colour shifts the BASE stroke within the gold family —
+   subtle hue variation so different edge kinds carry character
+   without breaking the unified gold language. Alphas kept faint. */
+.vein-contains    .vein-base { stroke: oklch(0.55 0.10  60 / 0.35); }
+.vein-calls       .vein-base { stroke: oklch(0.55 0.11  75 / 0.35); }
+.vein-reads       .vein-base { stroke: oklch(0.55 0.09  80 / 0.28); }
+.vein-writes      .vein-base { stroke: oklch(0.55 0.11  70 / 0.35); }
+.vein-derives     .vein-base { stroke: oklch(0.55 0.12  55 / 0.35); }
+.vein-supports    .vein-base { stroke: oklch(0.58 0.12  90 / 0.40); }
+.vein-contradicts .vein-base { stroke: oklch(0.50 0.15  40 / 0.45); }
+.vein-promotes    .vein-base { stroke: oklch(0.58 0.13  85 / 0.42); }
+.vein-demotes     .vein-base { stroke: oklch(0.52 0.11  50 / 0.35); }
+.vein-touches     .vein-base { stroke: oklch(0.55 0.08  80 / 0.22); }
+.vein-routes-to   .vein-base { stroke: oklch(0.55 0.10  65 / 0.30); }
+.vein-observes    .vein-base { stroke: oklch(0.58 0.11  95 / 0.35); }
+.vein-acts-on     .vein-base { stroke: oklch(0.52 0.12  50 / 0.35); }
+.vein-verifies    .vein-base { stroke: oklch(0.58 0.11  90 / 0.40); }
+.vein-mutates     .vein-base { stroke: oklch(0.52 0.12  45 / 0.35); }
+.vein-depends-on  .vein-base { stroke: oklch(0.55 0.10  70 / 0.35); }
+
+/* Atom — every node is an SVG circle on its surface. At rest the
+   atom is pinned at its family tint; only ~25% twinkle visibly (via
+   a per-atom .twinkle class) so the compositor isn't asked to tick
+   1700 simultaneous animations. Bloom is overlaid via the .bloomed
+   class: brightness scale + drop-shadow halo, eased through a CSS
+   transition then silently removed after fade. */
+.atom {
+  cursor: pointer;
+  stroke: none;
+  --bloom: 0;
+  --rest: oklch(0.70 0.22 285);
+  --excited: oklch(0.70 0.28 285);
+  /* Stars are STEADY at rest — full opacity, family tint. The
+     chamber's life comes from heartbeat activity, not from idle
+     oscillation. The .bloomed class is the ONLY way an atom
+     changes state.
+
+     NO CSS transition on filter — the JS-side cascade envelope
+     already eases attack → hold → fade smoothly; adding a CSS
+     transition on top made the filter chase a moving target it
+     never caught, producing visible stutter during decay. JS now
+     writes the live --bloom every frame; the filter applies
+     instantly at that value. Smooth because the input is smooth. */
+  fill: var(--rest);
+  opacity: 1;
+}
+.atom.bloomed {
+  /* Bloomed atoms flicker bright when a thought hits. Brightness
+     baseline is exactly 1.0 at bloom=0 so removing .bloomed at end
+     of decay is silent (the filter at that point is brightness(1.0)
+     + drop-shadow(0px) which is visually identical to no filter). */
+  filter:
+    brightness(calc(1.0 + var(--bloom) * 0.95))
+    drop-shadow(0 0 calc(var(--bloom) * 1.6px) var(--excited));
+}
+
+.atom.kind-space     { --rest: oklch(0.78 0.20 155); --excited: #2E9E72; }
+.atom.kind-skill     { --rest: oklch(0.70 0.24  25); --excited: #D85540; }
+.atom.kind-channel   { --rest: oklch(0.70 0.22 290); --excited: oklch(0.55 0.28 290); }
+.atom.kind-sense     { --rest: oklch(0.72 0.20 235); --excited: #2D87C4; }
+.atom.kind-memory    { --rest: oklch(0.78 0.18  85); --excited: #8A6B3A; }
+.atom.kind-belief    { --rest: oklch(0.78 0.18  70); --excited: #B5841C; }
+.atom.kind-predict   { --rest: oklch(0.72 0.20 340); --excited: oklch(0.55 0.30 340); }
+.atom.kind-attention { --rest: oklch(0.75 0.16  55); --excited: #7D7268; }
+.atom.kind-error     { --rest: oklch(0.65 0.28  25); --excited: oklch(0.55 0.32 25); }
+.atom.kind-person    { --rest: oklch(0.75 0.18  10); --excited: oklch(0.60 0.25 10); }
+.atom.kind-device    { --rest: oklch(0.72 0.18 220); --excited: oklch(0.55 0.25 220); }
+.atom.kind-room      { --rest: oklch(0.74 0.18 130); --excited: oklch(0.55 0.24 130); }
+.atom.kind-atom      { --rest: oklch(0.70 0.22 285); --excited: #6A5BD4; }
+.atom.kind-loop      { --rest: oklch(0.78 0.22  80); --excited: #E0A21F; }
+
+.atom.status-sleeping { fill-opacity: 0.45; }
+.atom.status-retired  { fill-opacity: 0.22; }
+.atom.status-error    { fill: #D85540; }
+
+/* Label — plain readable text, shown only on hover. */
+.anatomy-label {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: oklch(0.97 0.005 220);
+  color: oklch(0.20 0.015 230);
+  font-family: var(--serif);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px oklch(0.55 0.020 230 / 0.20);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Viewport-space beams from the core to each heartbeat dart's
+   target. Rendered above all room surfaces but below the input
+   ridge and open windows. Pointer events disabled so the beam
+   layer doesn't intercept clicks. */
+.core-beams {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  /* Behind the stage (core + ridge + windows live at z 3+) so beams
+     appear to come out of the BACK of the core sphere, not its
+     front face. */
+  z-index: 2;
+}
+
+/* ─── Chamber 3D — perspective + rake tokens ───────────────────
+   Every constant that controls how the room reads as a 3D space
+   lives here. Tweak --chamber-depth for a deeper/shallower room;
+   --chamber-perspective for a softer/sharper camera (lower = more
+   vertigo, higher = gentler). --chamber-floor-y / --chamber-ceiling-y
+   set where the floor and ceiling near-edges sit on screen; the
+   side wall positions follow from the viewport bounds. */
+:root {
+  --chamber-perspective: 1800px;
+  --chamber-perspective-origin-y: 50%;
+  --chamber-depth: 1050px;
+  /* Floor/ceiling now anchor at the viewport edges with the
+     surface's NEAR edge at the screen edge (rotation pivots around
+     bottom/top of the rect). Keeps the surface inside the viewport
+     in pre-transform coords so the browser doesn't cull it. */
+}
+
+/* ─── Room shell ─────────────────────────────────────────────────
+   A real CSS 3D scene: perspective on .room, then each surface is
+   a rectangle rotated/translated to form a 5-plane chamber that
+   encloses the camera. The interaction plane (core, ridge, windows)
+   sits at z=0 in front of the surfaces. */
+.room {
+  position: fixed;
+  inset: 0;
+  background: var(--white);
+  perspective: var(--chamber-perspective);
+  perspective-origin: 50% var(--chamber-perspective-origin-y);
+  transform-style: preserve-3d;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.surface {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+  backface-visibility: visible;
+}
+
+/* Back wall — recessed at z = -depth. The radial gradient gives a
+   soft ambient wash, brightest near the back-wall floor seam. */
+.surface-back {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(
+    ellipse 50% 45% at 50% 55%,
+    oklch(0.965 0.010 220) 0%,
+    var(--back-wall) 75%
+  );
+  transform: translateZ(calc(var(--chamber-depth) * -1));
+}
+
+/* Floor — anchored at the viewport BOTTOM. Rect grows upward by
+   --chamber-depth (so its pre-transform box is fully inside the
+   viewport, important so browsers don't pre-cull); rotation around
+   the bottom edge folds it back into 3D so the floor lies at
+   y=100vh extending z=0 (near) to z=-depth (far). */
+.surface-floor {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: var(--chamber-depth);
+  transform-origin: 50% 100%;
+  transform: rotateX(90deg);
+  background: linear-gradient(
+    to top,
+    var(--floor-near) 0%,
+    var(--floor-far) 100%
+  );
+}
+
+/* Ceiling — anchored at the viewport TOP. Mirror of the floor. */
+.surface-ceiling {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: var(--chamber-depth);
+  transform-origin: 50% 0%;
+  transform: rotateX(-90deg);
+  background: linear-gradient(
+    to bottom,
+    var(--ceil-near) 0%,
+    var(--ceil-far) 100%
+  );
+}
+
+/* Left wall — vertical, hinged from the screen's left edge,
+   raking back toward the back wall. */
+.surface-left {
+  left: 0;
+  top: 0;
+  width: var(--chamber-depth);
+  height: 100%;
+  transform-origin: 0% 50%;
+  transform: rotateY(90deg);
+  background: linear-gradient(
+    to right,
+    var(--side-near) 0%,
+    var(--side-far) 100%
+  );
+}
+
+/* Right wall — vertical, hinged from the screen's right edge. */
+.surface-right {
+  right: 0;
+  top: 0;
+  width: var(--chamber-depth);
+  height: 100%;
+  transform-origin: 100% 50%;
+  transform: rotateY(-90deg);
+  background: linear-gradient(
+    to left,
+    var(--side-near) 0%,
+    var(--side-far) 100%
+  );
+}
+
+/* ─── Architectural wireframe ────────────────────────────────────
+   Hairlines along the seams + receding corner edges. Hairline-thin
+   and low-opacity so they only register as "this is a room."        */
+.room-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: visible;
+}
+
+.room-edges .seam {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.room-edges .recede {
+  fill: none;
+  stroke: var(--edge-soft);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Soft cool vignette — encloses the box without competing with surfaces */
+.room-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    oklch(0.78 0.025 225 / 0.10) 100%
+  );
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ─── Stage — absolute layout so we can ground the core ─────────
+   The core sits on the floor: its base meets the floor/back-wall
+   seam (--by2 from top). Vertical center = --by2 - (core / 2).    */
+.stage {
+  position: relative;
+  z-index: 3;
+  height: 100%;
+  width: 100%;
+}
+
+.core-slot {
+  position: absolute;
+  left: 50%;
+  /* top set inline by App via spring-driven groundPct */
+  transform: translateX(-50%);
+}
+
+.hint-slot {
+  position: absolute;
+  left: 50%;
+  /* top set inline by App */
+  transform: translateX(-50%);
+  transition: opacity 1.4s ease-out;
+  transform-style: preserve-3d;
+  perspective: 1200px;
+  /* Wake-hint sink/rise: vertical translation lives here so it's in
+     world-Y; the child's rotateX stays constant. */
+  animation: hint-sink var(--hint-dur) ease-in-out infinite;
+}
+
+.hint-slot-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* When the room wakes the App swaps --core-slot-top to glide the
+   core; transition interpolates the change. */
+
+/* ─── Omega Core ────────────────────────────────────────────────── */
+
+/* Wrapper that handles the gentle floating motion. Idle: static
+   (the sphere rests on the floor). Awake: bobs like a buoy on water. */
+.core-float {
+  display: inline-grid;
+  place-items: center;
+  will-change: transform;
+}
+.awake .core-float {
+  animation: float 9s ease-in-out infinite;
+}
+
+.core {
+  position: relative;
+  width: var(--core-size);
+  height: var(--core-size);
+  display: grid;
+  place-items: center;
+  animation: breath var(--breath-dur) ease-in-out infinite;
+  will-change: transform, opacity;
+  transition: opacity 520ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.room.has-windows .core {
+  opacity: 0;
+}
+
+/* Outer aura — present only when the room is awake. Color cycles
+   with --glow-hue so it slowly drifts through the palette.
+   Gradient extends further out (transparent at 100%) so the halo
+   still has colour even at tight insets (e.g. window state). */
+.core-aura {
+  position: absolute;
+  inset: -55%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at center,
+    var(--aura-core) 0%,
+    var(--aura-mid)  55%,
+    transparent      100%
+  );
+  filter: blur(18px);
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 1.8s ease-out, transform 1.8s ease-out;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.awake .core-aura {
+  opacity: 1;
+  transform: scale(1);
+  animation: aura 9s ease-in-out infinite;
+}
+
+/* Beat pulse — one-shot animation triggered on each heartbeat by
+   anatomyPulses.js toggling .beat-pulse on the .core element. The
+   aura swells briefly so each beat reads as the core "firing"; the
+   rear-glow's --glow-hue is the target family's colour at that
+   instant, set inline from JS. */
+@keyframes core-beat-pulse {
+  0%   { transform: scale(1.00); opacity: 0.85; }
+  35%  { transform: scale(1.18); opacity: 1.00; }
+  100% { transform: scale(1.00); opacity: 0.85; }
+}
+.core.beat-pulse .core-aura {
+  animation:
+    aura 9s ease-in-out infinite,
+    core-beat-pulse 520ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+@keyframes aura {
+  0%, 100% { opacity: 0.85; transform: scale(0.98); }
+  50%      { opacity: 1.00; transform: scale(1.06); }
+}
+
+/* Color cycle for the aura. Filter chains preserve the static blur. */
+@keyframes aura-hue-cycle {
+  0%   { filter: blur(18px) saturate(1.40) brightness(1.10) hue-rotate(0deg);   }
+  100% { filter: blur(18px) saturate(1.40) brightness(1.10) hue-rotate(360deg); }
+}
+
+/* Window-state aura — softer pulse, lower opacity ceiling. */
+@keyframes aura-window {
+  0%, 100% { opacity: 0.40; transform: scale(0.96); }
+  50%      { opacity: 0.62; transform: scale(1.04); }
+}
+
+/* Window-state hue cycle — wider blur for a more diffuse halo,
+   lower saturate + brightness for a subdued tone. */
+@keyframes aura-hue-cycle-window {
+  0%   { filter: blur(22px) saturate(0.85) brightness(0.95) hue-rotate(0deg);   }
+  100% { filter: blur(22px) saturate(0.85) brightness(0.95) hue-rotate(360deg); }
+}
+
+/* When awake, the cast shadow on the floor goes away (sphere is
+   floating now). The inner glow has its own awake rule above. */
+.awake .core::after {
+  opacity: 0;
+  transition: opacity 1.6s ease-out;
+}
+
+/* Floor shadow — elongated, behind the sphere, on the floor surface */
+.core::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6%;
+  width: 82%;
+  height: 12%;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    ellipse at center,
+    var(--core-cast) 0%,
+    transparent 70%
+  );
+  filter: blur(7px);
+  z-index: -1;
+}
+
+.core-sphere {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 32% 28%,
+      var(--core-highlight) 0%,
+      var(--core-base) 38%,
+      var(--core-base-deep) 100%
+    );
+  box-shadow:
+    0 30px 60px -20px var(--core-rim-shadow),
+    0 8px 24px -8px var(--core-rim-shadow),
+    inset 6px 6px 18px oklch(1.00 0.004 220 / 0.55),
+    inset -10px -14px 28px oklch(0.66 0.028 230 / 0.28);
+  /* Smoothly cross-fades the box-shadow stack between sphere and
+     window states. Duration tuned to approximately match the spring
+     that drives size/border-radius. */
+  transition: box-shadow 700ms cubic-bezier(0.32, 0.0, 0.18, 1);
+}
+
+/* ─── Keyframes ─────────────────────────────────────────────────── */
+
+/* (The old `.room.morphing` cascade and its companion `.chat-window`
+   styles have been removed — the OmegaWindow primitive now carries
+   the morph + panel material directly. The core stays a pure sphere.) */
+
+.core-glow {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 55%,
+    var(--glow-cool) 0%,
+    var(--glow-cool-soft) 40%,
+    transparent 72%
+  );
+  filter: blur(8px);
+  /* Idle: barely-there subtle pulse — the sphere is dormant. */
+  animation: glow-idle var(--glow-dur) ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Awake: stronger inner light, faster-feeling pulse, saturated.
+   Two animations — the pulse keyframe animates opacity/scale, and
+   the hue cycle animation animates the filter (incl. hue-rotate). */
+.awake .core-glow {
+  animation: glow-awake var(--glow-dur) ease-in-out infinite;
+  filter: blur(11px) saturate(2.00) brightness(1.30);
+  transition: filter 1.4s ease-out;
+}
+
+/* Color cycle for the inner glow. Filter chain keeps blur/saturate/
+   brightness while rotating hue. */
+@keyframes glow-hue-cycle {
+  0%   { filter: blur(11px) saturate(2.00) brightness(1.30) hue-rotate(0deg);   }
+  100% { filter: blur(11px) saturate(2.00) brightness(1.30) hue-rotate(360deg); }
+}
+
+.core-spec {
+  position: absolute;
+  top: 14%;
+  left: 22%;
+  width: 32%;
+  height: 22%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    oklch(1.00 0.003 220 / 0.75) 0%,
+    oklch(1.00 0.003 220 / 0.10) 55%,
+    transparent 75%
+  );
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+.core-omega {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: calc(var(--core-size) * 0.42);
+  line-height: 1;
+  color: transparent;
+  text-shadow:
+    0 1px 0 var(--omega-light),
+    0 -1px 1px var(--omega-shadow),
+    1px 0 0 var(--omega-light);
+  -webkit-text-stroke: 0.5px oklch(0.80 0.020 225 / 0.35);
+  opacity: var(--omega-opacity);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ─── Enter hint ────────────────────────────────────────────────── */
+.hint {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: clamp(36px, 5.2vmin, 64px);
+  letter-spacing: 0.20em;
+  text-transform: lowercase;
+  color: oklch(0.10 0.012 230);
+  text-shadow:
+    -0.6px -0.8px 0 oklch(1.00 0.003 220 / 0.85),
+     0    -1px   0 oklch(1.00 0.003 220 / 0.50),
+     0.8px 1px   0.6px oklch(0.05 0.010 230 / 0.55),
+     1.4px 1.8px 2.5px oklch(0.05 0.010 230 / 0.30);
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  /* Hold the floor-perspective rotation static; vertical motion is
+     applied on the parent .hint-slot via its own animation so the
+     text falls straight DOWN through the floor (world-Y axis) rather
+     than sliding along the floor's rake. */
+  transform: rotateX(65deg);
+  transform-origin: 50% 50%;
+}
+
+.hint::before,
+.hint::after {
+  content: "·";
+  margin: 0 0.9em;
+  opacity: 0.45;
+  text-shadow: none;
+}
+
+/* ─── Input Slab ─────────────────────────────────────────────────
+   .ridge-stack is the absolute-positioned wrapper anchored just above
+   the floor; it holds the slab itself plus the scroll buttons that
+   live OUTSIDE the slab (so the slab's clip-path doesn't clip them).
+
+   .ridge is the slab — a slim 3D screen, just ~2px taller than the
+   text. As the text wraps the slab grows one line at a time up to a
+   3-line cap (set inline from JS via textarea height). Past the cap,
+   the textarea scrolls internally and .ridge-scroll buttons grow out
+   of the slab's edges. */
+.ridge-stack {
+  position: absolute;
+  left: 50%;
+  /* 10px above the viewport bottom — gives the slab a slight lift
+     while the bottom face still colour-matches the floor so the seam
+     reads as invisible. */
+  bottom: 10px;
+  z-index: 4;
+  transform: translateX(-50%);
+  width: var(--ridge-w);
+  pointer-events: auto;
+}
+
+/* Edge glow — matches the core's aura at all times. Same hue cycle,
+   same saturate/brightness filter. Positioned to wrap only the top
+   and sides of the ridge: the bottom inset is positive enough that
+   the box (plus its 8px blur extension) ends well above the floor
+   seam, so the slab's bottom edge stays clean and blends with the
+   floor. Its opacity + translateY are driven by the spring in
+   InputRidge so the glow rides up and down with the ridge as it
+   opens/closes. */
+.ridge-glow {
+  position: absolute;
+  inset: -8px -8px 14px -8px;
+  border-radius: 16px 16px 0 0;
+  background: var(--aura-core);
+  /* Ridge dimmed ~15% vs the core via filter:brightness. */
+  filter: blur(8px) saturate(1.40) brightness(0.95) opacity(0.85);
+  z-index: -1;
+  pointer-events: none;
+  /* Promote to its own compositor layer so the JS-driven transform
+     + opacity don't flicker against the slab's clip-path animation,
+     and back-paint artifacts from the windows layer don't leak in. */
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+@keyframes ridge-glow-hue {
+  0%   { filter: blur(8px) saturate(1.40) brightness(1.10) hue-rotate(0deg);   }
+  100% { filter: blur(8px) saturate(1.40) brightness(1.10) hue-rotate(360deg); }
+}
+
+/* (ridge-rainbow keyframes removed — glow is now a static soft edge) */
+
+.ridge {
+  position: relative;
+  width: 100%;
+  padding: var(--ridge-pad-y) var(--ridge-pad-x);
+  /* Only the top corners are rounded — the bottom merges into the
+     floor seamlessly. */
+  border-radius: var(--ridge-radius) var(--ridge-radius) 0 0;
+  background: linear-gradient(
+    to bottom,
+    var(--ridge-face-top) 0%,
+    var(--ridge-face-bot) 100%
+  );
+  /* No cast shadow on the floor: the bottom of the slab IS the floor.
+     The flowing rainbow glow on .ridge-stack::before handles the
+     outer luminescence; here we keep only material cues. */
+  box-shadow:
+    /* Top edge highlight — the lit top face of the slab */
+    inset 0 1.5px 0 var(--ridge-highlight),
+    /* Side bevels suggesting the slab has thickness */
+    inset 1px 0 0 var(--ridge-rim-light),
+    inset -1px 0 0 var(--ridge-bezel);
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+
+  transform-origin: bottom center;
+  will-change: clip-path;
+}
+
+/* Top edge — a brighter lit strip that reads as the top face of the
+   slab catching the ceiling light. */
+.ridge-top-edge {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: var(--ridge-radius) var(--ridge-radius) 0 0;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--ridge-rim-light) 12%,
+    var(--ridge-highlight) 50%,
+    var(--ridge-rim-light) 88%,
+    transparent 100%
+  );
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* The textarea — letter fill is solid black; layered shadows keep the
+   neumorphic 3D form (white highlight on top-left, dark cast on
+   bottom-right) so each glyph reads as black metal pressed up from
+   the surface. */
+.ridge-input {
+  width: 100%;
+  height: 1.5em;          /* one line at rest; JS resizes up to MAX_LINES */
+  max-height: calc(1.5em * 3);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: clamp(17px, 2.0vmin, 22px);
+  line-height: 1.5;
+  letter-spacing: 0.005em;
+
+  /* Solid near-black fill */
+  color: oklch(0.10 0.012 230);
+
+  /* Neumorphic emboss kept around the black letterforms:
+       1. sharp white highlight on the top-left edge
+       2. soft white fill on the very top
+       3. crisp dark cast directly below-right
+       4. soft falloff fading down                                   */
+  text-shadow:
+    -0.5px -0.5px 0   oklch(1.00 0.003 220 / 0.85),
+     0    -1px   0   oklch(1.00 0.003 220 / 0.45),
+     1px   1px   0.5px oklch(0.05 0.010 230 / 0.55),
+     1.5px 2px   2px   oklch(0.05 0.010 230 / 0.30),
+     2.5px 3.5px 5px   oklch(0.05 0.010 230 / 0.18);
+
+  caret-color: oklch(0.20 0.020 230);
+
+  -webkit-font-smoothing: antialiased;
+  resize: none;
+  overflow-y: auto;
+  scrollbar-width: none;
+  text-align: center;
+  display: block;
+}
+.ridge-input::-webkit-scrollbar { display: none; }
+
+.ridge-input::placeholder {
+  color: var(--ink-faint);
+  font-style: italic;
+  text-shadow: none;
+}
+
+/* ─── Scroll buttons ─────────────────────────────────────────────
+   Small neumorphic studs that sit ON the slab face, in the right
+   padding zone (clear of the centered text). Hidden by default;
+   when .visible, they grow up out of the slab surface with a spring. */
+.ridge-scroll {
+  position: absolute;
+  right: 8px;
+  width: 26px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: linear-gradient(
+    to bottom,
+    var(--ridge-face-top) 0%,
+    oklch(0.945 0.013 220) 100%
+  );
+  /* Raised from the slab face — outer cast + inner highlight */
+  box-shadow:
+    /* outer soft cast under the button */
+    0 1.5px 3px var(--ridge-cast-soft),
+    0 0.5px 1px var(--ridge-inset),
+    /* lit top edge */
+    inset 0 1px 0 oklch(1.00 0.003 220 / 0.85),
+    /* dark inset rim under top edge */
+    inset 0 -1px 1px var(--ridge-inset);
+
+  color: oklch(0.18 0.012 230);
+  font-size: 10px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  /* The chevron itself reads embossed onto the button face */
+  text-shadow:
+    -0.4px -0.4px 0 oklch(1.00 0.003 220 / 0.55),
+     0.4px  0.4px 0 oklch(0.05 0.010 230 / 0.35);
+
+  /* Hidden by default: grows out of the slab surface. */
+  transform: scaleY(0);
+  opacity: 0;
+  transition:
+    transform 600ms cubic-bezier(0.34, 1.45, 0.5, 1),
+    opacity 220ms ease-out,
+    box-shadow 120ms ease;
+}
+
+.ridge-scroll:focus-visible {
+  outline: 1px solid var(--ridge-bezel);
+  outline-offset: 2px;
+}
+.ridge-scroll:active {
+  /* Press: button dents into the surface */
+  box-shadow:
+    inset 0 1.5px 2px var(--ridge-inset),
+    inset 0 -0.5px 0 oklch(1.00 0.003 220 / 0.55);
+}
+
+.ridge-scroll-up {
+  top: 4px;
+  transform-origin: bottom center;
+}
+.ridge-scroll-up.visible {
+  transform: scaleY(1);
+  opacity: 1;
+}
+
+.ridge-scroll-down {
+  bottom: 4px;
+  transform-origin: top center;
+}
+.ridge-scroll-down.visible {
+  transform: scaleY(1);
+  opacity: 1;
+}
+
+/* Registered cycle is driven by filter: hue-rotate on the glow + aura
+   so it shifts color without requiring var interpolation in
+   gradients (which browsers don't recompute reliably). */
+
+/* ─── Chat window ────────────────────────────────────────────────
+   The conversation surface lives inside .core-sphere. Hidden by
+   default (sphere state) — the .room.morphing class on the root fades
+   it in 600ms AFTER the morph completes so the sphere's collapse/
+   expansion isn't competing with text appearing. When un-morphing,
+   we kill the delay so the chat disappears BEFORE the sphere
+   shrinks back, otherwise the text gets crushed into a circle. */
+.chat-window {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease-out;     /* fast un-morph */
+  display: flex;
+  flex-direction: column;
+  z-index: 2;
+}
+.room.morphing .chat-window {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 360ms ease-out 480ms; /* delayed entry */
+}
+
+/* Scroll container — holds messages, grows to fill the window. The
+   stack inside is pushed to the bottom so the conversation builds
+   upward; new messages enter at the bottom and push older ones up.
+   Scrollbar is neumorphic — recessed track + raised pill thumb so
+   it reads as part of the same sculpted window face. */
+.chat-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 22px 28px 28px;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.80 0.10 295) transparent;
+  scroll-behavior: smooth;
+  display: flex;
+  flex-direction: column;
+}
+.chat-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.chat-scroll::-webkit-scrollbar-track {
+  background: oklch(0.92 0.06 295);
+  border-radius: 5px;
+  margin: 4px 0;
+  /* Recessed slot — dark purple inset top-left, lit inset bottom-right */
+  box-shadow:
+    inset 1px 1px 2px oklch(0.45 0.10 295 / 0.45),
+    inset -1px -1px 1px oklch(1.00 0.003 220 / 0.75);
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    to right,
+    oklch(0.95 0.10 295) 0%,
+    oklch(0.84 0.13 295) 100%
+  );
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  /* Raised pill — stronger lift forward: bigger lit edge, deeper
+     bottom-right rim, real outer cast. */
+  box-shadow:
+    inset 1.5px 1.5px 0 oklch(1.00 0.003 220 / 0.95),
+    inset -1.5px -2px 2px oklch(0.38 0.14 295 / 0.55),
+    0 2px 4px oklch(0.40 0.14 295 / 0.40),
+    0 4px 10px -2px oklch(0.45 0.12 295 / 0.25);
+}
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    to right,
+    oklch(0.97 0.09 295) 0%,
+    oklch(0.90 0.11 295) 100%
+  );
+}
+.chat-scroll::-webkit-scrollbar-thumb:active {
+  /* Press: thumb dents inward */
+  box-shadow:
+    inset 1px 1px 2px oklch(0.42 0.12 295 / 0.50),
+    inset -1px -1px 0 oklch(1.00 0.003 220 / 0.55);
+}
+.chat-scroll::-webkit-scrollbar-button { display: none; }
+
+/* The stack fills any remaining space and aligns its content to the
+   bottom of the scroll container. Past window height, overflow takes
+   over. */
+.chat-stack {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ─── Message — etched into a soft neumorphic bubble ────────────
+   Each message sits in its own snug bubble. The bubble is raised
+   from the window face (outer cast + inset highlight) and its
+   background colour drifts slowly through a 3-step palette that
+   differs by role — warm for user, cool for omega. Text remains
+   etched into the surface; the etch sits inside the bubble. */
+.msg {
+  font-family: var(--serif);
+  font-size: clamp(15px, 1.8vmin, 18px);
+  line-height: 1.6;
+  letter-spacing: 0.005em;
+  color: oklch(0.18 0.014 230);
+  white-space: pre-wrap;          /* preserves line breaks */
+  max-width: 78%;
+  -webkit-font-smoothing: antialiased;
+
+  /* Tight to text — generous corners, snug padding. Top padding is
+     a hair tighter to let the label sit in the corner without
+     adding too much vertical bulk. */
+  padding: 4px 13px 7px;
+  border-radius: 14px;
+
+  /* Neumorphic raise — deeper cast, stronger inset lighting so each
+     bubble reads as a sculpted nub rising off the window face. */
+  box-shadow:
+    /* outer cast */
+    0 3px 6px oklch(0.45 0.030 230 / 0.22),
+    0 10px 22px -6px oklch(0.50 0.030 230 / 0.20),
+    /* top-left inset highlight — lit rim */
+    inset 1.5px 1.5px 4px oklch(1.00 0.003 220 / 0.90),
+    /* bottom-right inset shadow — sculpted depth */
+    inset -1.5px -2.5px 5px oklch(0.45 0.030 230 / 0.30);
+
+  /* Default etch — medium. Tiers below adjust. */
+  text-shadow:
+    -0.5px -0.5px 0.4px oklch(0.05 0.010 230 / 0.45),
+     0.6px  0.6px 0.6px oklch(1.00 0.003 220 / 0.55);
+}
+
+/* User messages — left side, warm colour drift. */
+.msg-user {
+  align-self: flex-start;
+  margin-right: 8%;
+  animation: user-shift 22s ease-in-out infinite;
+}
+
+/* The corner label that names the speaker. Small but readable; lives
+   inside the bubble at the leading corner, so the bubble appears to
+   stretch up there to make room for it. */
+.msg-label {
+  display: block;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.10em;
+  text-transform: lowercase;
+  font-weight: 500;
+  color: oklch(0.36 0.020 230);
+  opacity: 0.75;
+  margin-bottom: 3px;
+  /* No etching on the label — keeps it crisp + readable. */
+  text-shadow: none;
+}
+.msg-user  .msg-label { text-align: left;  }
+.msg-omega .msg-label { text-align: right; }
+
+/* Omega messages — right side, cool colour drift, with Ω signature
+   at the trailing edge. */
+.msg-omega {
+  align-self: flex-end;
+  margin-left: 8%;
+  animation: omega-shift 26s ease-in-out infinite;
+}
+.msg-omega .msg-mark {
+  display: inline-block;
+  margin-left: 0.55em;
+  font-size: 0.85em;
+  letter-spacing: 0;
+  color: oklch(0.30 0.020 230);
+  text-shadow:
+    -0.6px -0.6px 0.6px oklch(0.05 0.010 230 / 0.65),
+     0.6px  0.6px 0.6px oklch(1.00 0.003 220 / 0.60);
+  vertical-align: 0.05em;
+}
+
+/* Soft colour cycles. User = shades of green; Omega = shades of
+   blue. Chroma kept moderate + lightness high so it reads pastel-
+   luminous, not candy-bright. */
+@keyframes user-shift {
+  0%, 100% { background: oklch(0.92 0.10 145 / 0.70); }  /* sage  */
+  33%      { background: oklch(0.93 0.10 165 / 0.70); }  /* mint  */
+  66%      { background: oklch(0.91 0.11 130 / 0.70); }  /* leaf  */
+}
+
+@keyframes omega-shift {
+  0%, 100% { background: oklch(0.93 0.10 215 / 0.70); }  /* sky   */
+  33%      { background: oklch(0.92 0.10 240 / 0.70); }  /* steel */
+  66%      { background: oklch(0.93 0.10 200 / 0.70); }  /* tide  */
+}
+
+/* ─── Etching tiers ─────────────────────────────────────────────
+   Short → maximally etched.
+   Medium → moderate (default — values above).
+   Long → minimal etching, near-plain text. Readability wins. */
+.msg-short {
+  text-shadow:
+    -0.6px -0.7px 0.5px oklch(0.04 0.010 230 / 0.60),
+     0.7px  0.8px 0.6px oklch(1.00 0.003 220 / 0.60);
+  font-weight: 500;
+}
+
+.msg-long {
+  /* Long, dense replies become near-plain text — readability over
+     effect. A whisper of shadow still hints at the surface. */
+  text-shadow:
+    -0.3px -0.3px 0.3px oklch(0.05 0.010 230 / 0.18),
+     0.3px  0.3px 0.4px oklch(1.00 0.003 220 / 0.22);
+  font-weight: 400;
+  line-height: 1.65;
+  max-width: 88%;
+}
+
+/* ─── Thinking indicator ────────────────────────────────────────
+   Three small dots that pulse in sequence while Omega forms a reply.
+   Same engraved family so it sits on the surface, not above it. */
+.msg-thinking .dot {
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  margin: 0 0.18em;
+  border-radius: 50%;
+  background: oklch(0.28 0.018 230);
+  box-shadow:
+    -0.5px -0.5px 0.5px oklch(0.05 0.010 230 / 0.45) inset,
+     0.5px  0.5px 0.5px oklch(1.00 0.003 220 / 0.45) inset;
+  vertical-align: 0.05em;
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+.msg-thinking .dot:nth-child(2) { animation-delay: 0.15s; }
+.msg-thinking .dot:nth-child(3) { animation-delay: 0.30s; }
+
+@keyframes thinking-pulse {
+  0%, 80%, 100% { opacity: 0.30; transform: translateY(0); }
+  40%           { opacity: 0.90; transform: translateY(-1.5px); }
+}
+
+/* ─── OmegaWindow ────────────────────────────────────────────────
+   The window primitive. Position/size are set inline from the
+   command bus + spring math; this stylesheet only carries material.
+   The chat lives inside this, as does any other window opened via
+   the bus. */
+.omega-windows {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;   /* let the room handle clicks where empty */
+  z-index: 5;
+}
+
+.omega-window {
+  position: absolute;
+  pointer-events: auto;
+  background: linear-gradient(
+    to bottom,
+    var(--window-face-top) 0%,
+    var(--window-face-bot) 100%
+  );
+  box-shadow:
+    /* Outer aura glow — uses var(--glow-hue) so it cycles colour in
+       lockstep with the core's aura and the ridge's edge glow.
+       Window dimmed ~25% vs the core. */
+    0 0 32px 6px oklch(0.78 0.22 var(--glow-hue) / 0.525),
+    0 0 72px 14px oklch(0.85 0.15 var(--glow-hue) / 0.30),
+    0 40px 80px -16px var(--window-cast),
+    0 20px 44px -10px var(--window-cast-soft),
+    inset 12px 12px 36px var(--window-emboss-hi),
+    inset -16px -20px 42px var(--window-emboss-lo);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  will-change: transform, width, height, border-radius, opacity;
+  /* Smooth fade on unmount; mount stays instant (size/shape spring
+     does the visible work of "morphing in"). */
+  transition: opacity 280ms ease-out;
+}
+.omega-window.dragging { cursor: grabbing; }
+
+.omega-win-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 4px;
+  cursor: grab;
+  font-family: var(--serif);
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: lowercase;
+  color: oklch(0.42 0.020 230);
+  opacity: 0.75;
+}
+.omega-win-header:active { cursor: grabbing; }
+.omega-win-kind { font-weight: 500; }
+.omega-win-head-left { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.omega-win-owner {
+  flex: 0 0 auto;
+  font-family: ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  cursor: default;
+  color: oklch(0.42 0.08 230);
+  background: oklch(0.90 0.030 230 / 0.55);
+}
+.omega-win-owner.owner-omega  { color: oklch(0.46 0.14 285); background: oklch(0.92 0.05 285 / 0.55); }
+.omega-win-owner.owner-shared { background: oklch(0.91 0.015 230 / 0.6); }
+.omega-win-owner.owner-shared .pr-you { color: oklch(0.42 0.08 230); }
+.omega-win-owner.owner-shared .pr-omega { color: oklch(0.46 0.14 285); }
+.omega-win-owner.owner-shared .pr-sep { color: oklch(0.55 0.02 230 / 0.5); margin: 0 2px; }
+.omega-win-owner.owner-view-only { color: oklch(0.50 0.02 230 / 0.8); background: oklch(0.90 0.012 230 / 0.5); }
+
+/* ─── Status dock (ambient HUD) ──────────────────────────────────────
+   Calm always-on console: presence + mode + open count + focus + last
+   change. Dark glass so it reads over the void field. */
+.status-dock {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 6;
+  font-family: ui-monospace, monospace;
+  background: oklch(0.18 0.012 245 / 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid oklch(0.62 0.02 240 / 0.18);
+  border-radius: 10px;
+  padding: 8px 11px;
+  color: oklch(0.92 0.012 230);
+  cursor: pointer;
+  max-width: 240px;
+  user-select: none;
+  transition: background 200ms ease, border-color 200ms ease;
+}
+.status-dock:hover {
+  background: oklch(0.22 0.012 245 / 0.66);
+  border-color: oklch(0.62 0.02 240 / 0.30);
+}
+.sd-row { display: flex; align-items: center; gap: 7px; }
+.sd-orb {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 9px 1px currentColor;
+  animation: sd-pulse 3.2s ease-in-out infinite;
+}
+@keyframes sd-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50%      { opacity: 1;    transform: scale(1.12); }
+}
+.sd-mode {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: oklch(0.90 0.02 230);
+}
+.sd-count {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 9.5px;
+  color: oklch(0.72 0.02 230 / 0.7);
+}
+.sd-focus {
+  margin-top: 5px;
+  font-size: 9.5px;
+  color: oklch(0.80 0.03 230 / 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sd-last {
+  margin-top: 2px;
+  font-size: 9px;
+  color: oklch(0.66 0.02 230 / 0.6);
+}
+
+/* ─── Adaptable media tiles (inline-in-chat content) ─────────────────
+   Any surface kind can embed inline as a draggable tile; drag it out to
+   split into its own surface, drag the surface back to merge. */
+.msg-image {
+  position: relative;
+  display: block;
+  margin-top: 7px;
+  width: 232px;
+  max-width: 100%;
+  height: 150px;
+  border-radius: 11px;
+  overflow: hidden;
+  cursor: grab;
+  background: oklch(0.95 0.005 220);
+  box-shadow: 0 2px 10px oklch(0.20 0.02 230 / 0.18);
+  transition: box-shadow 160ms ease;
+}
+.msg-image:active { cursor: grabbing; }
+.msg-image.splitting {
+  box-shadow: 0 10px 28px oklch(0.55 0.14 235 / 0.42);
+  outline: 2px dashed oklch(0.60 0.12 235 / 0.7);
+  z-index: 20;
+}
+.msg-image .media-inner { position: absolute; inset: 0; pointer-events: none; }
+.msg-image .media-inner > * { width: 100% !important; height: 100% !important; }
+.media-play {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: oklch(0.20 0.02 250 / 0.55);
+  color: oklch(0.98 0.01 230);
+  font-size: 14px;
+  padding-left: 3px;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+.msg-grab {
+  position: absolute;
+  top: 6px; right: 8px;
+  font-size: 12px;
+  letter-spacing: -1.5px;
+  color: oklch(0.30 0.02 230 / 0.5);
+  pointer-events: none;
+}
+.msg-detached-chip {
+  display: inline-block;
+  margin-top: 5px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: oklch(0.48 0.07 235);
+  background: oklch(0.93 0.02 235 / 0.7);
+  border: 1px dashed oklch(0.58 0.09 235 / 0.55);
+  border-radius: 8px;
+  padding: 5px 9px;
+}
+
+/* ─── Panel cards + dark-glass surface skin (status-dock aesthetic) ──── */
+.msg-panel .panel-card {
+  margin-top: 7px;
+  width: 340px;
+  max-width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: oklch(0.17 0.012 245 / 0.66);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid oklch(0.62 0.02 240 / 0.18);
+  box-shadow: 0 4px 18px oklch(0.10 0.02 250 / 0.4);
+}
+.panel-card.splitting {
+  box-shadow: 0 14px 32px oklch(0.55 0.14 235 / 0.45);
+  outline: 2px dashed oklch(0.60 0.12 235 / 0.7);
+}
+.panel-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 11px;
+  cursor: grab;
+  background: oklch(0.22 0.012 245 / 0.5);
+  border-bottom: 1px solid oklch(0.62 0.02 240 / 0.15);
+}
+.panel-card-head:active { cursor: grabbing; }
+.panel-card-kind {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: oklch(0.82 0.02 230);
+}
+.panel-card .msg-grab { position: static; color: oklch(0.70 0.02 230 / 0.6); }
+.panel-card-body { position: relative; height: 300px; overflow: hidden; }
+
+/* Dark-glass skin for system-surface content — one skin, used both
+   inline (panel-card) and floating (own window). */
+.surface-dark {
+  width: 100%;
+  height: 100%;
+  background: oklch(0.17 0.012 245 / 0.72);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: oklch(0.90 0.012 230);
+}
+.omega-window.kind-agenda,
+.omega-window.kind-attention,
+.omega-window.kind-timeline,
+.omega-window.kind-inspect {
+  background: oklch(0.15 0.012 248 / 0.74);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.omega-window.kind-agenda .omega-win-header,
+.omega-window.kind-attention .omega-win-header,
+.omega-window.kind-timeline .omega-win-header,
+.omega-window.kind-inspect .omega-win-header { color: oklch(0.78 0.02 230); }
+.omega-window.kind-agenda .omega-win-body,
+.omega-window.kind-attention .omega-win-body,
+.omega-window.kind-timeline .omega-win-body,
+.omega-window.kind-inspect .omega-win-body { background: transparent; }
+
+/* Recolor the component internals for light-on-dark. */
+.surface-dark .agenda-title, .surface-dark .attn-title,
+.surface-dark .tl-title, .surface-dark .insp-name { color: oklch(0.95 0.012 230); }
+.surface-dark .agenda-goal, .surface-dark .attn-label,
+.surface-dark .tl-text, .surface-dark .insp-card,
+.surface-dark .insp-grid dd { color: oklch(0.88 0.012 230); }
+.surface-dark .agenda-sub, .surface-dark .attn-why, .surface-dark .tl-why,
+.surface-dark .agenda-summary, .surface-dark .insp-pw-label,
+.surface-dark .insp-pw-val, .surface-dark .insp-note { color: oklch(0.74 0.02 230 / 0.85); }
+.surface-dark .insp-grid dt, .surface-dark .agenda-topic,
+.surface-dark .tl-time { color: oklch(0.68 0.02 230 / 0.75); }
+.surface-dark .insp-kind { color: oklch(0.70 0.02 230 / 0.85); border-color: oklch(0.70 0.02 230 / 0.3); }
+.surface-dark .attn-cat { color: oklch(0.74 0.13 var(--c)); }
+.surface-dark .attn-sal { color: oklch(0.78 0.06 var(--c)); }
+.surface-dark .agenda-status { color: oklch(0.72 0.12 150); }
+.surface-dark .insp-chip, .surface-dark .agenda-meta-tag, .surface-dark .attn-frame-tag {
+  background: oklch(0.32 0.04 235 / 0.5);
+  color: oklch(0.84 0.05 235);
+}
+.surface-dark .insp-bar, .surface-dark .attn-bar { background: oklch(0.40 0.02 230 / 0.4); }
+.surface-dark .agenda-head, .surface-dark .attn-head, .surface-dark .tl-head { border-bottom-color: oklch(0.70 0.02 230 / 0.14); }
+.surface-dark .agenda-row, .surface-dark .attn-row, .surface-dark .tl-row { border-bottom-color: oklch(0.70 0.02 230 / 0.08); }
+.surface-dark .agenda-src, .surface-dark .attn-src,
+.surface-dark .tl-src, .surface-dark .insp-src {
+  border-top-color: oklch(0.70 0.02 230 / 0.14);
+  color: oklch(0.62 0.02 230 / 0.6);
+}
+.surface-dark .attn-note, .surface-dark .tl-note { color: oklch(0.65 0.02 230 / 0.7); }
+.surface-dark .attn-row.is-frame { background: oklch(0.35 0.03 var(--c) / 0.22); }
+.surface-dark .agenda-summary b { color: oklch(0.74 0.13 150); }
+
+/* ─── Chat surface + input ridge → dark-glass aesthetic ──────────────── */
+.omega-window.kind-chat {
+  background: oklch(0.15 0.012 248 / 0.74);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.omega-window.kind-chat .omega-win-header { color: oklch(0.78 0.02 230); }
+
+/* Bubbles — dark translucent, light text, no etch (etch reads wrong on dark). */
+.kind-chat .msg { color: oklch(0.96 0.012 230); text-shadow: none; }
+.kind-chat .msg-short, .kind-chat .msg-medium, .kind-chat .msg-long { text-shadow: none; }
+.kind-chat .msg-body { text-shadow: none; }
+.kind-chat .msg-user, .kind-chat .msg-omega { animation: none; }
+.kind-chat .msg-user {
+  background: oklch(0.26 0.045 150 / 0.86);
+  border: 1px solid oklch(0.62 0.09 150 / 0.34);
+}
+.kind-chat .msg-omega {
+  background: oklch(0.24 0.045 235 / 0.86);
+  border: 1px solid oklch(0.62 0.09 235 / 0.34);
+}
+.kind-chat .msg-label { color: oklch(0.84 0.04 230 / 0.95); font-size: 10.5px; letter-spacing: 0.12em; }
+.kind-chat .msg-mark { color: oklch(0.72 0.07 235); text-shadow: none; }
+.kind-chat .chat-scroll::-webkit-scrollbar-track { background: oklch(0.26 0.02 250 / 0.5); }
+.kind-chat .chat-scroll::-webkit-scrollbar-thumb { background: oklch(0.45 0.05 250 / 0.7); }
+
+/* Ridge — dark glass slab, light engraving removed. */
+.ridge {
+  background: linear-gradient(to bottom,
+    oklch(0.21 0.014 248 / 0.88) 0%,
+    oklch(0.13 0.012 250 / 0.92) 100%);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.ridge-top-edge {
+  background: linear-gradient(to bottom, oklch(0.55 0.02 240 / 0.35), transparent);
+}
+.ridge-input {
+  color: oklch(0.95 0.012 230);
+  text-shadow: none;
+  caret-color: oklch(0.85 0.06 235);
+}
+.ridge-input::placeholder { color: oklch(0.70 0.02 230 / 0.5); }
+
+/* ─── Primary surface: chat auto-sizes its HEIGHT to content ──────────
+   The default single surface is large (layout); the chat additionally
+   grows/shrinks with its content (adaptive), bounded so it only reaches
+   near-full-screen when it actually needs to. */
+/* ─── Chat panel: scrollable messages + composer bound to the panel ──── */
+.chat-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.chat-composer {
+  flex: 0 0 auto;
+  padding: 9px 12px 10px;
+  border-top: 1px solid oklch(0.60 0.02 240 / 0.16);
+}
+.chat-composer-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: 1px solid oklch(0.62 0.02 240 / 0.22);
+  background: oklch(0.20 0.012 248 / 0.6);
+  color: oklch(0.93 0.012 230);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.4;
+  outline: none;
+  max-height: 104px;
+  overflow-y: auto;
+}
+.chat-composer-input::placeholder { color: oklch(0.60 0.02 230 / 0.5); font-style: italic; }
+.chat-composer-input:focus { border-color: oklch(0.62 0.06 235 / 0.5); }
+
+/* ─── Calm pass: surfaces match the status-dock card ─────────────────
+   Flat dark glass, one hairline border, a single soft drop shadow — no
+   colored auras, no neumorphic emboss, no gradient faces. */
+/* ─── ONE window frame for EVERY window — the legacy blue glass is GONE ──
+   There is no "old" vs "new" window any more. Base = a calm NEUTRAL grey
+   glass (no blue tint). A window opened FROM an atom (.morph-atom, with
+   --awin-hue set) wears that atom's hue instead — same glass treatment, the
+   accent hue just adapts. No !important; OmegaWindow only overrides inline
+   DURING the clip morph (box-shadow:none + a drop-shadow that hugs the clip). */
+.omega-window {
+  border: 1px solid oklch(0.80 0.012 250 / 0.52);
+  box-shadow:
+    0 14px 36px oklch(0.03 0.01 250 / 0.55),
+    inset 0 1px 0 oklch(0.99 0.006 250 / 0.34),
+    inset 0 -1px 0 oklch(0.45 0.01 250 / 0.22),
+    0 0 0 1px oklch(0.84 0.012 250 / 0.18),
+    0 0 22px oklch(0.72 0.02 250 / 0.18);
+}
+.omega-window.morph-atom {
+  border: 1px solid oklch(0.78 0.16 var(--awin-hue, 250) / 0.5);
+  box-shadow:
+    0 16px 44px oklch(0.03 0.02 250 / 0.5),
+    0 0 26px oklch(0.72 0.18 var(--awin-hue, 250) / 0.30);
+}
+.panel-card, .msg-image {
+  border: 1px solid oklch(0.62 0.02 240 / 0.16);
+  box-shadow: 0 6px 20px oklch(0.05 0.02 250 / 0.4) !important;
+}
+.panel-card.splitting, .msg-image.splitting {
+  box-shadow: 0 10px 26px oklch(0.05 0.02 250 / 0.5) !important;
+  outline: 2px dashed oklch(0.60 0.12 235 / 0.6);
+}
+.kind-chat .msg-user, .kind-chat .msg-omega { box-shadow: none; }
+.status-dock { box-shadow: 0 8px 24px oklch(0.05 0.02 250 / 0.4); }
+
+/* Input ridge → flat dark-glass card, no cyan aura. */
+.ridge-glow { display: none !important; }
+.ridge {
+  border: 1px solid oklch(0.62 0.02 240 / 0.2);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px oklch(0.04 0.02 250 / 0.5);
+}
+
+/* ─── First appearance: small centered chat-input surface ────────────
+   Until a surface exists, the input floats in the middle of the screen
+   as the one entry point; on send it docks (bottom) and the surface
+   spreads from center. */
+.ridge-stack.centered {
+  top: 50% !important;
+  bottom: auto !important;
+  transform: translateX(-50%) translateY(-50%) !important;
+  width: min(560px, 74vw) !important;
+  transition: none;
+}
+
+/* ─── Visible window controls on dark glass ──────────────────────────── */
+.omega-win-header { opacity: 1; }
+.omega-win-kind { color: oklch(0.62 0.02 230); }
+.omega-pin, .omega-close { color: oklch(0.84 0.02 230) !important; opacity: 0.9; }
+.omega-pin:hover, .omega-close:hover {
+  color: oklch(0.97 0.01 230) !important;
+  background: oklch(0.62 0.03 240 / 0.30) !important;
+  opacity: 1;
+}
+.omega-pin.on { color: oklch(0.74 0.13 215) !important; opacity: 1; }
+.omega-win-resize {
+  background:
+    linear-gradient(135deg, transparent 0 55%, oklch(0.72 0.02 230 / 0.55) 55% 65%,
+      transparent 65% 78%, oklch(0.72 0.02 230 / 0.55) 78% 88%, transparent 88%) !important;
+  opacity: 0.7;
+}
+.omega-win-resize:hover { opacity: 1; }
+/* Panel-card + media grab handles a touch brighter too. */
+.msg-grab { color: oklch(0.78 0.02 230 / 0.7); }
+
+/* ─── Legacy unification: ALL windows + placeholders + dev console dark ── */
+.omega-window {
+  background: oklch(0.15 0.012 248 / 0.74);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.omega-win-header, .omega-win-kind { color: oklch(0.80 0.02 230); }
+.omega-pin, .omega-close { color: oklch(0.72 0.02 230); }
+.omega-pin:hover, .omega-close:hover { background: oklch(0.6 0.03 240 / 0.22); }
+
+.image-content { background: oklch(0.16 0.012 248 / 0.5); }
+.image-stripes {
+  background: repeating-linear-gradient(45deg,
+    oklch(0.26 0.035 240) 0 8px, oklch(0.21 0.040 240) 8px 16px);
+  border-radius: 8px;
+}
+.image-label { color: oklch(0.85 0.02 230 / 0.85); }
+.lorem { color: oklch(0.82 0.014 230); }
+
+.devconsole-body { background: oklch(0.16 0.012 248 / 0.72); color: oklch(0.88 0.012 230); }
+.devconsole-actions { background: oklch(0.20 0.012 248 / 0.5); border-bottom-color: oklch(0.60 0.02 240 / 0.15); }
+.devconsole-actions button { background: oklch(0.28 0.02 245 / 0.55); color: oklch(0.85 0.02 230); }
+.devconsole-actions button:hover { background: oklch(0.34 0.03 245 / 0.65); }
+.devconsole-out { background: transparent; }
+.devconsole-result { color: oklch(0.84 0.05 150); }
+.devconsole-src { color: oklch(0.85 0.04 235); }
+.devconsole-hint { color: oklch(0.65 0.02 230 / 0.7); }
+.devconsole-who { color: oklch(0.70 0.04 235 / 0.8); }
+.devconsole-prompt { background: oklch(0.18 0.012 248 / 0.5); border-top-color: oklch(0.60 0.02 240 / 0.15); }
+.devconsole-caret { color: oklch(0.70 0.04 235 / 0.8); }
+.devconsole-input { color: oklch(0.93 0.012 230); }
+.devconsole-input::placeholder { color: oklch(0.60 0.02 230 / 0.55); }
+.omega-win-controls { display: flex; gap: 6px; }
+
+.omega-pin, .omega-close {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  color: oklch(0.40 0.020 230);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 120ms ease, color 120ms ease;
+}
+.omega-pin:hover, .omega-close:hover {
+  background: oklch(0.55 0.025 230 / 0.18);
+}
+.omega-pin.on {
+  color: oklch(0.45 0.10 215);
+}
+
+.omega-win-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.omega-win-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(
+      135deg,
+      transparent 0%, transparent 40%,
+      oklch(0.55 0.025 230 / 0.40) 40%, oklch(0.55 0.025 230 / 0.40) 50%,
+      transparent 50%, transparent 60%,
+      oklch(0.55 0.025 230 / 0.30) 60%, oklch(0.55 0.025 230 / 0.30) 70%,
+      transparent 70%
+    );
+}
+
+/* Kind-specific tweaks: chat needs its scroll container to fill. */
+.omega-window.kind-chat .omega-win-body .chat-scroll { flex: 1 1 auto; }
+
+.lorem {
+  padding: 16px 20px;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.6;
+  color: oklch(0.30 0.014 230);
+}
+.lorem p { margin: 0 0 10px; }
+
+.image-content {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+}
+.image-stripes {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      oklch(0.92 0.030 215) 0px,
+      oklch(0.92 0.030 215) 8px,
+      oklch(0.88 0.035 215) 8px,
+      oklch(0.88 0.035 215) 16px
+    );
+  display: grid;
+  place-items: center;
+}
+.image-label {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: oklch(0.30 0.020 230 / 0.70);
+}
+
+/* ─── OmegaSurface — adaptive real hosts, in the CARD language ─────────
+   ONE styling for every surface (Plan 0.2 + §19c–h). Each surface opens
+   FROM a causing atom and wears that atom's hue via --awin-hue (set on the
+   .osurf ROOT from the atom's real colour, so it reads atom-hued in EVERY
+   context — morph window, inline chat stage, or plain). Structure mirrors
+   the inspector card: a kind-pill + title HEAD, the host BODY, a provenance
+   FOOT naming the atom. The legacy blue placeholder styling is GONE. */
+.osurf {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  min-height: 0; overflow: hidden;
+  color: oklch(0.90 0.012 230);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* card head — kind pill + title (mirrors .insp-head) */
+.osurf-head { flex: 0 0 auto; display: flex; align-items: baseline; gap: 10px; padding: 11px 15px 8px; }
+.osurf-kind {
+  font-family: ui-monospace, monospace; font-size: 9.5px; letter-spacing: .18em;
+  text-transform: uppercase; color: oklch(0.76 0.12 var(--awin-hue, 235) / 0.92);
+  border: 1px solid oklch(0.72 0.10 var(--awin-hue, 235) / 0.42);
+  border-radius: 4px; padding: 2px 6px;
+}
+.osurf-title { font-family: var(--serif); font-size: 15px; font-weight: 500; color: oklch(0.94 0.012 230); }
+
+/* body fills between head + foot */
+.osurf-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* provenance foot — names the causing atom (mirrors .insp-src) */
+.osurf-foot {
+  flex: 0 0 auto; margin: 0 15px; padding: 7px 0 9px;
+  border-top: 1px solid oklch(0.70 0.02 230 / 0.14);
+  font-family: ui-monospace, monospace; font-size: 9.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: oklch(0.68 0.06 var(--awin-hue, 235) / 0.72);
+}
+
+/* media fills */
+.osurf-img, .osurf-video, .osurf-map { flex: 1 1 auto; min-height: 0; display: flex; }
+.osurf-img img, .osurf-video video { width: 100%; height: 100%; object-fit: contain; background: oklch(0.10 0.01 245); }
+.osurf-frame { flex: 1 1 auto; width: 100%; height: 100%; border: 0; background: oklch(0.96 0 0); }
+
+/* empty drop state — a calm card element in the atom hue */
+.osurf-drop {
+  flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px;
+  align-items: center; justify-content: center; cursor: default; text-align: center;
+  border: 1px dashed oklch(0.62 0.06 var(--awin-hue, 235) / 0.26);
+  border-radius: 12px; margin: 2px 15px 12px;
+  transition: border-color .15s, background .15s;
+}
+.osurf-drop.over { border-color: oklch(0.72 0.13 var(--awin-hue, 235) / 0.8); background: oklch(0.48 0.09 var(--awin-hue, 235) / 0.12); }
+.osurf-drop input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.osurf-drop-icon { font-size: 30px; line-height: 1; color: oklch(0.76 0.14 var(--awin-hue, 235) / 0.9); }
+.osurf-drop-hint { font-family: ui-monospace, monospace; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: oklch(0.85 0.08 var(--awin-hue, 235)); }
+.osurf-drop-sub { font-size: 11px; color: oklch(0.64 0.02 230 / 0.7); }
+
+/* audio */
+.osurf-audio { flex: 1 1 auto; display: flex; flex-direction: column; gap: 12px; padding: 16px; justify-content: center; }
+.osurf-wave { display: flex; align-items: center; gap: 2px; height: 86px; cursor: pointer; }
+.osurf-wave-bar { flex: 1; min-width: 2px; border-radius: 2px; background: oklch(0.42 0.03 var(--awin-hue, 235) / 0.5); transition: background .1s; }
+.osurf-wave-bar.on { background: oklch(0.74 0.14 var(--awin-hue, 235)); }
+.osurf-audio-ctl { display: flex; align-items: center; gap: 12px; }
+.osurf-play {
+  width: 40px; height: 40px; border-radius: 50%; border: 0; cursor: pointer;
+  background: oklch(0.72 0.14 var(--awin-hue, 235)); color: oklch(0.16 0.03 var(--awin-hue, 235)); font-size: 14px;
+  display: grid; place-items: center;
+}
+.osurf-play:hover { background: oklch(0.79 0.15 var(--awin-hue, 235)); }
+.osurf-time { font-family: ui-monospace, monospace; font-size: 12px; color: oklch(0.72 0.02 230 / 0.85); }
+
+/* browser */
+.osurf-browser { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.osurf-urlbar { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-bottom: 1px solid oklch(0.55 0.04 var(--awin-hue, 235) / 0.18); }
+.osurf-url-lock { color: oklch(0.66 0.09 var(--awin-hue, 235) / 0.75); font-size: 12px; }
+.osurf-urlbar input {
+  flex: 1; min-width: 0; background: oklch(0.30 0.02 240 / 0.5); border: 1px solid oklch(0.58 0.05 var(--awin-hue, 235) / 0.24);
+  border-radius: 7px; padding: 5px 9px; color: oklch(0.92 0.01 230); font: inherit; font-size: 12px; font-family: ui-monospace, monospace;
+}
+.osurf-urlbar input:focus { outline: none; border-color: oklch(0.68 0.12 var(--awin-hue, 235) / 0.6); }
+.osurf-url-go {
+  border: 0; cursor: pointer; background: oklch(0.64 0.13 var(--awin-hue, 235) / 0.8); color: oklch(0.96 0.01 230);
+  border-radius: 7px; width: 28px; height: 28px; font-size: 14px;
+}
+.osurf-browser-empty, .osurf-generic { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; padding: 18px; }
+.osurf-browser-empty span { font-size: 28px; color: oklch(0.66 0.10 var(--awin-hue, 235) / 0.6); }
+.osurf-browser-empty p { margin: 0; font-size: 13px; color: oklch(0.82 0.012 230); }
+.osurf-browser-empty small, .osurf-generic-note { font-size: 11px; color: oklch(0.62 0.02 230 / 0.65); }
+
+/* document */
+.osurf-doc { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 18px; font-size: 13.5px; line-height: 1.6; }
+.osurf-doc h1 { font-size: 18px; margin: 0 0 10px; color: oklch(0.95 0.012 230); }
+.osurf-doc h2 { font-size: 15px; margin: 14px 0 6px; color: oklch(0.92 0.012 230); }
+.osurf-doc h3 { font-size: 13px; margin: 12px 0 4px; color: oklch(0.88 0.012 230); text-transform: uppercase; letter-spacing: .08em; }
+.osurf-doc p { margin: 0 0 9px; color: oklch(0.86 0.012 230); }
+.osurf-doc ul { margin: 0 0 9px; padding-left: 18px; }
+.osurf-doc li { margin: 2px 0; color: oklch(0.86 0.012 230); }
+.osurf-doc code { font-family: ui-monospace, monospace; font-size: 12px; background: oklch(0.34 0.03 240 / 0.5); padding: 1px 5px; border-radius: 5px; }
+.osurf-doc blockquote { margin: 0 0 9px; padding-left: 12px; border-left: 2px solid oklch(0.64 0.10 var(--awin-hue, 235) / 0.5); color: oklch(0.78 0.02 230 / 0.85); }
+
+/* terminal */
+.osurf-term { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; background: oklch(0.11 0.012 245 / 0.6); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+.osurf-term-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 12px 4px; }
+.osurf-term-ln { white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+.osurf-term-ln.k-sys { color: oklch(0.64 0.06 var(--awin-hue, 235) / 0.7); }
+.osurf-term-ln.k-cmd { color: oklch(0.93 0.012 230); }
+.osurf-term-ln.k-out { color: oklch(0.80 0.06 150 / 0.95); }
+.osurf-term-ln.k-err { color: oklch(0.70 0.16 25); }
+.osurf-term-pr { color: oklch(0.72 0.13 var(--awin-hue, 235)); margin-right: 6px; }
+.osurf-term-input { display: flex; align-items: center; padding: 6px 12px 12px; }
+.osurf-term-input input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: oklch(0.94 0.012 230); font: inherit; }
+
+/* folder */
+.osurf-folder { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 10px; align-content: start; }
+.osurf-file { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border: 0; background: oklch(0.30 0.02 240 / 0.32); border-radius: 9px; cursor: pointer; color: inherit; }
+.osurf-file:hover { background: oklch(0.44 0.07 var(--awin-hue, 235) / 0.42); }
+.osurf-file-ico { font-size: 22px; color: oklch(0.76 0.11 var(--awin-hue, 235) / 0.9); }
+.osurf-file-name { font-family: ui-monospace, monospace; font-size: 10.5px; color: oklch(0.80 0.02 230 / 0.85); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* generic */
+.osurf-generic-badge { font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: oklch(0.72 0.08 var(--awin-hue, 235) / 0.8); }
+.osurf-generic-kind { font-size: 22px; font-weight: 600; color: oklch(0.92 0.012 230); }
+.osurf-generic-payload { font-family: ui-monospace, monospace; font-size: 11px; color: oklch(0.74 0.02 230 / 0.8); background: oklch(0.30 0.02 240 / 0.4); padding: 10px; border-radius: 8px; max-width: 100%; overflow: auto; text-align: left; }
+
+/* ─── Chat workspace — ONE surface, two panes (conversation | stage) ── */
+.chat-workspace { display: flex; flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; }
+.chat-workspace .chat-panel { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+
+/* Compact state — the window IS just an input. Hide the chat-scroll
+   (none rendered) and let the composer fill; the host window header is
+   hidden too (rule below) so it reads as a clean floating input that
+   will grow on send. */
+.chat-workspace.compact { align-items: stretch; }
+.chat-workspace.compact .chat-panel { justify-content: center; }
+.chat-workspace.compact .chat-composer { padding: 0; flex: 1 1 auto; display: flex; }
+.chat-workspace.compact .chat-composer-input {
+  flex: 1 1 auto; align-self: stretch;
+  padding: 0 22px; font-size: 16px; line-height: 1.4;
+  display: flex; align-items: center;
+  /* vertically center single-line text in the compact box */
+  padding-top: 18px; padding-bottom: 18px;
+}
+.chat-workspace.compact .chat-composer-input::placeholder {
+  color: oklch(0.74 0.03 235 / 0.6);
+}
+/* The chat window in compact mode drops its header so the box is the
+   input itself (it grows a header + body once messages exist). */
+.omega-window.kind-chat:has(.chat-workspace.compact) .omega-win-header { display: none; }
+.omega-window.kind-chat:has(.chat-workspace.compact) .omega-win-resize { display: none; }
+.chat-workspace.has-stage .chat-panel {
+  flex: 0 0 38%; max-width: 440px; min-width: 280px;
+  border-right: 1px solid oklch(0.60 0.02 235 / 0.16);
+}
+.ws-stage {
+  flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; gap: 14px; padding: 14px;
+}
+.ws-surface {
+  flex: 1 0 320px; min-height: 0; display: flex; flex-direction: column;
+  border: 1px solid oklch(0.66 0.025 235 / 0.34); border-radius: 12px;
+  overflow: hidden; background: oklch(0.15 0.012 245 / 0.5);
+  box-shadow:
+    inset 0 1px 0 oklch(0.98 0.02 235 / 0.22),
+    inset 0 -1px 0 oklch(0.45 0.03 250 / 0.18),
+    0 0 0 1px oklch(0.74 0.05 235 / 0.10),
+    0 6px 18px oklch(0.04 0.02 250 / 0.4);
+}
+
+/* chat composer + browser url input — visible edge so the input reads */
+.chat-composer-input, .osurf-urlbar input, .osurf-term-input {
+  border: 1px solid oklch(0.70 0.05 var(--awin-hue, 235) / 0.30) !important;
+  box-shadow:
+    inset 0 1px 0 oklch(0.98 0.02 235 / 0.14),
+    0 1px 6px oklch(0.04 0.02 250 / 0.3) !important;
+}
+
+/* same glass edge on every other card — ridge, status dock, inline
+   media + panel cards, tweaks panel — so nothing floats border-less. */
+.ridge, .status-dock, .msg-image, .panel-card, .twk-panel {
+  border: 1px solid oklch(0.68 0.025 235 / 0.30) !important;
+  box-shadow:
+    inset 0 1px 0 oklch(0.98 0.02 235 / 0.18),
+    inset 0 -1px 0 oklch(0.45 0.03 250 / 0.16),
+    0 0 0 1px oklch(0.74 0.05 235 / 0.10),
+    0 8px 22px oklch(0.04 0.02 250 / 0.42) !important;
+}
+
+/* ─── Liquid lifecycle ───────────────────────────────────────────────
+   Surfaces MATERIALISE out of the void (blur-in haze, the spring
+   handles the elastic scale/grow) and DISSOLVE on close (eased fade as
+   the spring shrinks them back toward the core). */
+@keyframes liquid-in {
+  0%   { filter: blur(18px) saturate(0.5); }
+  55%  { filter: blur(4px) saturate(0.9); }
+  100% { filter: blur(0) saturate(1); }
+}
+.omega-window {
+  animation: liquid-in 640ms cubic-bezier(.2,.85,.25,1.04) both;
+  transition: opacity 360ms ease, filter 360ms ease;
+}
+/* the ridge slab gets a soft transform-origin so its scale-in reads
+   as forming from a single point. */
+.ridge { transform-origin: center; will-change: transform, filter, opacity; }
+.ws-surface-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 11px; border-bottom: 1px solid oklch(0.58 0.02 235 / 0.14);
+  font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .04em;
+}
+.ws-surface-kind { color: oklch(0.86 0.04 235); text-transform: lowercase; }
+.ws-surface-by { color: oklch(0.60 0.06 235 / 0.7); }
+.ws-surface-ctl { display: flex; align-items: center; gap: 8px; }
+.ws-surface-min, .ws-surface-close {
+  border: 0; background: transparent; cursor: pointer; line-height: 1;
+  font-size: 15px; padding: 0 2px; color: oklch(0.66 0.03 var(--awin-hue, 235) / 0.7);
+  transition: color .12s, transform .12s;
+}
+.ws-surface-min:hover, .ws-surface-close:hover { color: oklch(0.86 0.14 var(--awin-hue, 235)); transform: scale(1.15); }
+/* close/minimize the conversation — pinned top-right of the convo pane */
+.chat-convo-ctl {
+  position: absolute; top: 9px; right: 11px; z-index: 4;
+  display: flex; align-items: center; gap: 6px;
+}
+.chat-convo-min, .chat-convo-close {
+  border: 0; background: transparent; cursor: pointer; line-height: 1;
+  font-size: 16px; padding: 2px 4px; color: oklch(0.64 0.03 var(--awin-hue, 235) / 0.6);
+  transition: color .12s, transform .12s;
+}
+.chat-convo-min:hover, .chat-convo-close:hover { color: oklch(0.86 0.14 var(--awin-hue, 235)); transform: scale(1.12); }
+.chat-panel { position: relative; }
+/* conversation closed → the stage fills the whole workspace */
+.chat-workspace.convo-closed .ws-stage { flex: 1 1 auto; }
+
+/* minimize button — sits with pin/close in the window header */
+.omega-min { background: transparent; border: 0; cursor: pointer; font-size: 16px; line-height: 1; }
+
+/* ─── Taskbar — backgrounded (minimized) windows, left edge ──────────── */
+.omega-taskbar {
+  position: fixed; left: 14px; top: 50%; transform: translateY(-50%);
+  z-index: 60; display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none;
+}
+.taskbar-card {
+  pointer-events: auto; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 13px 8px 11px; max-width: 200px;
+  border-radius: 11px;
+  border: 1px solid oklch(0.78 0.10 var(--awin-hue, 250) / 0.42);
+  background: oklch(0.16 0.014 250 / 0.82);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  box-shadow: 0 8px 22px oklch(0.03 0.02 250 / 0.5),
+    0 0 16px oklch(0.70 0.16 var(--awin-hue, 250) / 0.18);
+  transition: transform .14s ease, box-shadow .14s ease, border-color .14s;
+}
+.taskbar-card:hover {
+  transform: translateX(3px);
+  border-color: oklch(0.82 0.14 var(--awin-hue, 250) / 0.6);
+  box-shadow: 0 10px 26px oklch(0.03 0.02 250 / 0.55),
+    0 0 22px oklch(0.74 0.18 var(--awin-hue, 250) / 0.30);
+}
+.taskbar-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto;
+  background: oklch(0.74 0.17 var(--awin-hue, 250));
+  box-shadow: 0 0 10px oklch(0.74 0.18 var(--awin-hue, 250) / 0.7);
+}
+.taskbar-label {
+  font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .04em;
+  color: oklch(0.88 0.012 250); text-transform: lowercase;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ws-surface-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.ws-surface-body > * { flex: 1 1 auto; min-height: 0; }
+/* reference chip left in the conversation when a surface opens */
+.msg-ref .msg-ref-chip {
+  font-family: ui-monospace, monospace; font-size: 11.5px;
+  color: oklch(0.78 0.06 235 / 0.9);
+  background: oklch(0.34 0.03 235 / 0.4); padding: 3px 9px; border-radius: 7px;
+  display: inline-block;
+}
+
+@keyframes breath {
+  0%, 100% { transform: scale(1.000); }
+  50%      { transform: scale(1.022); }
+}
+
+/* Idle glow — subtle, dormant. The sphere isn't "on" yet. */
+@keyframes glow-idle {
+  0%, 100% { opacity: 0.22; transform: scale(0.96); }
+  50%      { opacity: 0.48; transform: scale(1.02); }
+}
+
+/* Awake glow — lit, present, pulsing with intent. */
+@keyframes glow-awake {
+  0%, 100% { opacity: 0.80; transform: scale(0.95); }
+  50%      { opacity: 1.00; transform: scale(1.10); }
+}
+
+/* Floating motion — a slow elliptical bob, like a buoy. Range is
+   intentionally tiny (±5px) so it reads as life, not motion. */
+@keyframes float {
+  0%   { transform: translate( 0px,  3px); }
+  25%  { transform: translate( 2px,  0px); }
+  50%  { transform: translate( 1px, -4px); }
+  75%  { transform: translate(-2px, -1px); }
+  100% { transform: translate( 0px,  3px); }
+}
+
+@keyframes hint {
+  0%, 100% { opacity: 0.00; }
+  20%      { opacity: 0.85; }
+  55%      { opacity: 0.85; }
+  85%      { opacity: 0.00; }
+}
+
+/* Wake hint — the .hint-slot translates vertically through the
+   floor while the inner .hint holds its rotateX, so the word
+   genuinely FALLS into the floor along world-Y and rises back. */
+@keyframes hint-sink {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  45%, 65% { transform: translateX(-50%) translateY(180px); }
+}
+
+/* ─── Reduced motion ────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .core,
+  .core-glow,
+  .hint,
+  .core-aura,
+  .core-float {
+    animation: none;
+  }
+  .core-glow { opacity: 0.75; }
+  .hint      { opacity: 0.70; }
+}
+
+/* ─── Chamber walls toggle ──────────────────────────────────────
+   When :root has [data-walls="off"], nuke every visible part of the
+   room (page bg, surface fills, ambient vignette) so atoms float in
+   a dark void. PERSPECTIVE STAYS INTACT — `perspective` on `.room`
+   and the `transform` on each `.surface-*` are untouched, so the
+   five anatomy SVGs still recede in 3D space. This is purely a
+   skin-deep removal of the white material, not a structural change.
+   Flip back to data-walls="on" from the Tweaks panel to restore. */
+:root[data-walls="off"] {
+  --void: oklch(0.13 0.010 225);
+}
+:root[data-walls="off"] body {
+  background: var(--void);
+  color: oklch(0.90 0.008 220);
+}
+:root[data-walls="off"] .room {
+  background: var(--void);
+}
+:root[data-walls="off"] .surface-back,
+:root[data-walls="off"] .surface-floor,
+:root[data-walls="off"] .surface-ceiling,
+:root[data-walls="off"] .surface-left,
+:root[data-walls="off"] .surface-right {
+  background: none;
+}
+:root[data-walls="off"] .room-vignette {
+  background: none;
+}
+
+/* ─── Inspector surface (Phase 2) ───────────────────────────────────
+   An atom's real card, rendered inside an OmegaWindow body. Light
+   surface to match the other window bodies; serif prose, monospace
+   labels, etched and calm. */
+.insp {
+  display: flex;
+  flex-direction: column;
+  padding: 11px 16px;
+  height: 100%;
+  box-sizing: border-box;
+  font-family: var(--serif);
+  color: oklch(0.26 0.018 230);
+}
+.insp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.insp-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.insp-kind {
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: oklch(0.55 0.020 230 / 0.75);
+  border: 1px solid oklch(0.55 0.020 230 / 0.30);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.insp-name {
+  font-size: 18px;
+  font-weight: 500;
+  color: oklch(0.16 0.014 230);
+}
+.insp-card {
+  margin: 0 0 7px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: oklch(0.34 0.018 230);
+  text-wrap: pretty;
+}
+.insp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+.insp-chip {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: oklch(0.40 0.030 235);
+  background: oklch(0.93 0.012 230);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+.insp-chip.warn {
+  color: oklch(0.46 0.140 50);
+  background: oklch(0.93 0.040 65);
+}
+.insp-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 14px;
+  margin: 0 0 7px;
+}
+.insp-grid dt {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: oklch(0.55 0.020 230 / 0.75);
+  align-self: center;
+}
+.insp-grid dd {
+  margin: 0;
+  font-size: 13px;
+  color: oklch(0.28 0.018 230);
+}
+.insp-risk { color: oklch(0.50 0.160 30); }
+.insp-pw { margin-bottom: 4px; }
+.insp-pw-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.insp-pw-label {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: oklch(0.45 0.020 230);
+}
+.insp-pw-val {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: oklch(0.30 0.050 235);
+}
+.insp-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: oklch(0.90 0.012 230);
+  overflow: hidden;
+}
+.insp-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: oklch(0.62 0.120 235);
+}
+.insp-note {
+  margin-top: 6px;
+  font-size: 11px;
+  font-style: italic;
+  color: oklch(0.55 0.020 230 / 0.75);
+}
+.insp-src {
+  flex: 0 0 auto;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid oklch(0.55 0.020 230 / 0.12);
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: oklch(0.58 0.020 230 / 0.65);
+}
+
+/* ─── Reasoning receipt (§11) ────────────────────────────────────────
+   Builds on the inspector shell. Premises with twin freq/conf bars, the
+   rule that fired, the derived conclusion + expectation + verdict. */
+.rcpt-sec-label {
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(0.58 0.02 230 / 0.7);
+  margin: 4px 0 7px;
+}
+.surface-dark .rcpt-sec-label { color: oklch(0.70 0.02 230 / 0.6); }
+.rcpt-prem, .rcpt-conc {
+  border: 1px solid oklch(0.70 0.02 230 / 0.16);
+  border-radius: 9px;
+  padding: 9px 11px;
+  margin-bottom: 8px;
+}
+.rcpt-conc { border-color: oklch(0.62 0.12 235 / 0.5); }
+.surface-dark .rcpt-prem { border-color: oklch(0.70 0.02 230 / 0.14); background: oklch(0.30 0.02 235 / 0.3); }
+.surface-dark .rcpt-conc { border-color: oklch(0.66 0.13 235 / 0.5); background: oklch(0.34 0.05 235 / 0.32); }
+.rcpt-prem-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.rcpt-atom {
+  font-size: 14px;
+  font-weight: 500;
+  color: oklch(0.30 0.04 235);
+}
+.surface-dark .rcpt-atom { color: oklch(0.92 0.02 235); }
+.rcpt-atom.hot { color: oklch(0.55 0.15 235); }
+.surface-dark .rcpt-atom.hot { color: oklch(0.86 0.13 235); }
+.rcpt-prov {
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  color: oklch(0.60 0.02 230 / 0.7);
+}
+.surface-dark .rcpt-prov { color: oklch(0.72 0.02 230 / 0.6); }
+.rcpt-stv { display: flex; flex-direction: column; gap: 4px; }
+.rcpt-stv-row { display: flex; align-items: center; gap: 8px; }
+.rcpt-stv-k {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  width: 10px;
+  color: oklch(0.55 0.02 230 / 0.8);
+}
+.surface-dark .rcpt-stv-k { color: oklch(0.74 0.02 230 / 0.8); }
+.rcpt-stv-row .insp-bar { flex: 1 1 auto; }
+.insp-bar-fill.conf { background: oklch(0.66 0.10 160); }
+.rcpt-stv-v {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  width: 30px;
+  text-align: right;
+  color: oklch(0.42 0.03 235);
+}
+.surface-dark .rcpt-stv-v { color: oklch(0.84 0.04 235); }
+.rcpt-rule {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 0 10px;
+  margin: 2px 0 6px;
+}
+.rcpt-rule-engine {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: oklch(0.50 0.13 285);
+}
+.surface-dark .rcpt-rule-engine { color: oklch(0.80 0.13 285); }
+.rcpt-rule-fn {
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+  color: oklch(0.56 0.02 230 / 0.85);
+}
+.surface-dark .rcpt-rule-fn { color: oklch(0.72 0.02 230 / 0.8); }
+.rcpt-verdict {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.rcpt-verdict.act { color: oklch(0.40 0.13 150); background: oklch(0.92 0.07 150); }
+.rcpt-verdict.hypothesize { color: oklch(0.45 0.13 75); background: oklch(0.93 0.07 75); }
+.rcpt-verdict.ignore { color: oklch(0.50 0.02 230); background: oklch(0.90 0.01 230); }
+.surface-dark .rcpt-verdict.act { color: oklch(0.88 0.14 150); background: oklch(0.40 0.10 150 / 0.4); }
+.surface-dark .rcpt-verdict.hypothesize { color: oklch(0.88 0.13 80); background: oklch(0.44 0.10 75 / 0.4); }
+.surface-dark .rcpt-verdict.ignore { color: oklch(0.80 0.02 230); background: oklch(0.42 0.02 230 / 0.4); }
+.rcpt-exp {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed oklch(0.60 0.02 230 / 0.2);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: oklch(0.50 0.02 230 / 0.85);
+}
+.surface-dark .rcpt-exp { color: oklch(0.74 0.02 230 / 0.8); border-top-color: oklch(0.72 0.02 230 / 0.18); }
+.rcpt-exp-v { font-size: 15px; font-weight: 600; color: oklch(0.40 0.10 235); }
+.surface-dark .rcpt-exp-v { color: oklch(0.86 0.12 235); }
+
+/* ─── Summoned-atom window: tint the palette by the atom's hue ───────
+   The window border/glow are set inline (the morph edge); these tint the
+   inspector accents so the opened surface clearly wears the atom's colour. */
+.omega-window.morph-atom .insp-kind {
+  color: oklch(0.72 0.13 var(--awin-hue));
+  border-color: oklch(0.72 0.13 var(--awin-hue) / 0.4);
+}
+.omega-window.morph-atom .insp-bar-fill,
+.omega-window.morph-atom .insp-bar-fill.conf {
+  background: oklch(0.66 0.15 var(--awin-hue));
+}
+.omega-window.morph-atom .insp-chip {
+  background: oklch(0.34 0.06 var(--awin-hue) / 0.5);
+  color: oklch(0.86 0.07 var(--awin-hue));
+}
+.omega-window.morph-atom .omega-win-kind { color: oklch(0.74 0.12 var(--awin-hue)); }
+.omega-window.morph-atom .rcpt-atom.hot,
+.omega-window.morph-atom .rcpt-exp-v { color: oklch(0.84 0.13 var(--awin-hue)); }
+
+/* ─── WebGL backdrop override ────────────────────────────────────────
+   In webgl mode the canvas is the chamber backdrop and sits BEHIND the
+   room (z-index 0), so the room must be a fully transparent interaction
+   layer — even when walls are "off" (which otherwise repaints the room
+   an opaque void and would hide the field). Higher specificity than the
+   data-walls rule so it always wins. */
+:root[data-renderer="webgl"] .room,
+:root[data-renderer="webgl"][data-walls="off"] .room,
+:root[data-renderer="webgl"][data-walls="on"] .room {
+  background: transparent;
+}
+
+/* ─── Agenda surface (Phase 2) ───────────────────────────────────────
+   Goals as a process list, grouped by status. Same calm light surface
+   as the inspector: pinned header + scrolling body + pinned provenance. */
+.agenda {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 11px;
+  height: 100%;
+  box-sizing: border-box;
+  font-family: var(--serif);
+  color: oklch(0.26 0.018 230);
+}
+.agenda-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px 9px;
+  border-bottom: 1px solid oklch(0.55 0.020 230 / 0.10);
+}
+.agenda-title {
+  font-size: 18px;
+  font-weight: 500;
+  color: oklch(0.16 0.014 230);
+}
+.agenda-summary {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: oklch(0.50 0.020 230 / 0.85);
+}
+.agenda-summary b { color: oklch(0.46 0.12 150); font-weight: 600; }
+.agenda-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.agenda-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid oklch(0.55 0.020 230 / 0.07);
+}
+.agenda-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: oklch(0.62 0.14 150);
+  box-shadow: 0 0 0 3px oklch(0.62 0.14 150 / 0.14);
+}
+.agenda-main { flex: 1 1 auto; min-width: 0; }
+.agenda-goal {
+  font-size: 13px;
+  line-height: 1.4;
+  color: oklch(0.22 0.016 230);
+  text-wrap: pretty;
+}
+.agenda-meta-tag {
+  display: inline-block;
+  margin-left: 7px;
+  font-family: ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: oklch(0.48 0.08 285);
+  background: oklch(0.93 0.03 285);
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: 1px;
+}
+.agenda-sub {
+  margin-top: 3px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: oklch(0.50 0.020 230 / 0.85);
+}
+.agenda-arrow { color: oklch(0.55 0.06 150); }
+.agenda-done { color: oklch(0.55 0.020 230 / 0.7); font-style: italic; }
+.agenda-side {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  text-align: right;
+}
+.agenda-status {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: oklch(0.46 0.12 150);
+}
+.agenda-topic {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  color: oklch(0.58 0.020 230 / 0.6);
+}
+/* Dormant — parked, NOT done: muted, hollow amber dot. */
+.agenda-row.status-dormant { opacity: 0.72; }
+.agenda-row.status-dormant .agenda-dot {
+  background: transparent;
+  border: 1.5px solid oklch(0.70 0.10 75);
+  box-shadow: none;
+}
+.agenda-row.status-dormant .agenda-status { color: oklch(0.62 0.10 75); }
+/* Complete — archived: faded + struck. */
+.agenda-row.status-complete .agenda-dot {
+  background: oklch(0.66 0.020 230);
+  box-shadow: none;
+}
+.agenda-row.status-complete .agenda-goal {
+  text-decoration: line-through;
+  text-decoration-color: oklch(0.55 0.020 230 / 0.5);
+  color: oklch(0.50 0.018 230 / 0.8);
+}
+.agenda-row.status-complete .agenda-status { color: oklch(0.55 0.020 230 / 0.7); }
+.agenda-src {
+  flex: 0 0 auto;
+  margin: 10px 16px 0;
+  padding-top: 9px;
+  border-top: 1px solid oklch(0.55 0.020 230 / 0.12);
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: oklch(0.58 0.020 230 / 0.65);
+}
+
+/* ─── Attention surface (Phase 2) ────────────────────────────────────
+   Ranked salience evidence — what Omega is attending to and why. Same
+   calm light surface; each row tinted by its evidence category. */
+.attn {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 11px;
+  height: 100%;
+  box-sizing: border-box;
+  font-family: var(--serif);
+  color: oklch(0.26 0.018 230);
+}
+.attn-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px 9px;
+  border-bottom: 1px solid oklch(0.55 0.020 230 / 0.10);
+}
+.attn-title { font-size: 18px; font-weight: 500; color: oklch(0.16 0.014 230); }
+.attn-note {
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  font-style: italic;
+  color: oklch(0.55 0.020 230 / 0.75);
+}
+.attn-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.attn-row {
+  --c: 230;
+  padding: 9px 16px 10px;
+  border-bottom: 1px solid oklch(0.55 0.020 230 / 0.07);
+  border-left: 2px solid transparent;
+}
+.attn-row.is-frame {
+  background: oklch(0.965 0.012 var(--c) / 0.7);
+  border-left-color: oklch(0.62 0.12 var(--c));
+}
+.attn-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.attn-cat {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.13 var(--c));
+}
+.attn-frame-tag {
+  font-family: ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: oklch(0.40 0.10 var(--c));
+  background: oklch(0.93 0.05 var(--c));
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.attn-sal {
+  margin-left: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: oklch(0.34 0.06 var(--c));
+}
+.attn-label {
+  font-size: 13px;
+  line-height: 1.35;
+  color: oklch(0.22 0.016 230);
+  text-wrap: pretty;
+  margin-bottom: 6px;
+}
+.attn-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: oklch(0.90 0.012 230);
+  overflow: hidden;
+  margin-bottom: 5px;
+}
+.attn-bar-fill { height: 100%; border-radius: 999px; background: oklch(0.62 0.13 var(--c)); }
+.attn-why {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: oklch(0.50 0.020 230 / 0.85);
+}
+/* Evidence-category accent hues (shared lightness/chroma, vary hue). */
+.attn-row.cat-conversation    { --c: 235; }
+.attn-row.cat-agenda          { --c: 150; }
+.attn-row.cat-energy          { --c: 285; }
+.attn-row.cat-memory-pressure { --c: 75;  }
+.attn-row.cat-failure         { --c: 25;  }
+.attn-row.cat-spin            { --c: 230; }
+.attn-src {
+  flex: 0 0 auto;
+  margin: 10px 16px 0;
+  padding-top: 9px;
+  border-top: 1px solid oklch(0.55 0.020 230 / 0.12);
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: oklch(0.58 0.020 230 / 0.65);
+}
+
+/* ─── Timeline / action rail (Phase 2 · charter #3) ──────────────────
+   The observable trace stream rendered as a surface. */
+.tl {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 11px;
+  height: 100%;
+  box-sizing: border-box;
+  font-family: var(--serif);
+  color: oklch(0.26 0.018 230);
+}
+.tl-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px 9px;
+  border-bottom: 1px solid oklch(0.55 0.020 230 / 0.10);
+}
+.tl-title { font-size: 18px; font-weight: 500; color: oklch(0.16 0.014 230); }
+.tl-note {
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  font-style: italic;
+  color: oklch(0.55 0.020 230 / 0.75);
+}
+.tl-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.tl-empty { padding: 16px; font-size: 12px; font-style: italic; color: oklch(0.55 0.020 230 / 0.7); }
+.tl-row {
+  --c: 230;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid oklch(0.55 0.020 230 / 0.06);
+}
+.tl-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: oklch(0.62 0.13 var(--c));
+}
+.tl-main { flex: 1 1 auto; min-width: 0; }
+.tl-line { display: flex; align-items: baseline; gap: 8px; }
+.tl-text { font-size: 13px; color: oklch(0.22 0.016 230); }
+.tl-who {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: oklch(0.50 0.10 var(--c));
+}
+.tl-who.who-omega { color: oklch(0.46 0.14 285); }
+.tl-who.who-user  { color: oklch(0.42 0.08 230); }
+.tl-who.who-system { color: oklch(0.50 0.02 230 / 0.7); }
+.tl-why {
+  margin-top: 2px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: oklch(0.50 0.020 230 / 0.8);
+}
+.tl-time {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  color: oklch(0.58 0.020 230 / 0.6);
+}
+.tl-row.cat-open    { --c: 150; }
+.tl-row.cat-close   { --c: 230; }
+.tl-row.cat-mode    { --c: 75;  }
+.tl-row.cat-skill   { --c: 235; }
+.tl-row.cat-inspect { --c: 285; }
+.tl-src {
+  flex: 0 0 auto;
+  margin: 10px 16px 0;
+  padding-top: 9px;
+  border-top: 1px solid oklch(0.55 0.020 230 / 0.12);
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: oklch(0.58 0.020 230 / 0.65);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   THE FRONT DOOR — login / session (Evolution Plan §21.2)
+   Omega runs behind a slight dim while logged out; a click summons the
+   provider marks (shimmer in), which expand into a glass chooser, which
+   shatters into light on success. Furniture in the surface-OS language.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* The dim veil — we're outside her space looking in. Subtle: she's still
+   visibly working, just slightly darkened + vignetted. */
+.login-dim {
+  position: fixed; inset: 0; z-index: 30; pointer-events: none;
+  background:
+    radial-gradient(125% 100% at 50% 44%, transparent 38%, oklch(0.04 0.02 262 / 0.40) 100%),
+    oklch(0.05 0.014 260 / 0.18);
+  transition: opacity 1.5s ease;
+}
+
+/* The interaction stage — catches click-off to back out. */
+.login-stage {
+  position: fixed; inset: 0; z-index: 31;
+  display: flex; align-items: center; justify-content: center;
+}
+/* The magical particle layer (arrival vortex + living aura), behind the marks. */
+.login-aura { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+
+/* ── The provider marks ─────────────────────────────────────────── */
+.login-marks {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  gap: 150px;
+}
+.login-mark {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  width: 104px; padding: 0; border: 0; background: transparent;
+  cursor: pointer; color: oklch(0.88 0.012 240);
+  opacity: 0;
+  animation: login-emerge 1.2s cubic-bezier(0.16, 0.8, 0.3, 1) both;
+}
+.login-mark-glow {
+  position: absolute; top: 6px; left: 50%; width: 120px; height: 120px;
+  transform: translateX(-50%);
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle,
+    oklch(0.86 0.11 var(--g, 240) / 0.55) 0%,
+    oklch(0.80 0.13 var(--g, 240) / 0.18) 42%,
+    transparent 70%);
+  filter: blur(6px);
+  animation: login-glow-pulse 3.4s ease-in-out infinite;
+}
+.login-mark-inner {
+  position: relative;
+  width: 70px; height: 70px;
+  display: flex; align-items: center; justify-content: center;
+  animation: login-bob 4.6s ease-in-out 1s infinite;
+  filter: drop-shadow(0 6px 16px oklch(0.02 0.02 260 / 0.5));
+}
+.login-mark-svg { width: 60px; height: 60px; display: block; }
+.login-mark:hover .login-mark-inner { transform: scale(1.07); }
+.login-mark-label {
+  font-family: ui-monospace, monospace; font-size: 11px;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: oklch(0.82 0.02 240 / 0.85);
+}
+.login-mark:hover .login-mark-label { color: oklch(0.92 0.04 240); }
+.login-marks-hint {
+  position: absolute; top: calc(100% + 34px); left: 0; right: 0;
+  text-align: center;
+  font-family: ui-monospace, monospace; font-size: 10.5px;
+  letter-spacing: 0.18em; text-transform: lowercase; font-style: italic;
+  color: oklch(0.70 0.02 250 / 0.6);
+  animation: login-fade-in 1.6s ease 0.5s both;
+}
+
+@keyframes login-emerge {
+  0%   { opacity: 0; transform: scale(0.32) translateY(16px) rotate(-9deg); filter: blur(26px) brightness(3.2) saturate(1.7); }
+  45%  { opacity: 0.92; filter: blur(5px) brightness(1.9) saturate(1.25); }
+  100% { opacity: 1; transform: scale(1) translateY(0) rotate(0deg); filter: blur(0) brightness(1) saturate(1); }
+}
+@keyframes login-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+@keyframes login-glow-pulse {
+  0%, 100% { opacity: 0.5; transform: translateX(-50%) scale(0.9); }
+  50%      { opacity: 0.9; transform: translateX(-50%) scale(1.16); }
+}
+@keyframes login-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── The glass chooser panel ────────────────────────────────────── */
+.login-panel {
+  position: relative;
+  width: 384px; max-width: 88vw;
+  padding: 18px 18px 14px;
+  border-radius: 16px;
+  background: oklch(0.15 0.012 250 / 0.80);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  border: 1px solid oklch(0.78 0.15 var(--awin-hue, 240) / 0.42);
+  box-shadow:
+    0 24px 70px oklch(0.02 0.02 260 / 0.6),
+    0 0 34px oklch(0.72 0.17 var(--awin-hue, 240) / 0.22),
+    inset 0 1px 0 oklch(0.95 0.02 240 / 0.10);
+  transform-origin: center;
+  animation: login-panel-in 0.5s cubic-bezier(0.16, 0.84, 0.3, 1) both;
+}
+.login-panel.dissolving {
+  animation: login-panel-out 0.95s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+  pointer-events: none;
+}
+.login-panel-head {
+  display: flex; align-items: center; gap: 13px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid oklch(0.72 0.02 240 / 0.12);
+}
+.login-panel-mark { flex: 0 0 auto; width: 28px; height: 28px; display: flex; }
+.login-panel-mark svg { width: 28px; height: 28px; }
+.login-panel-title {
+  font-family: var(--serif); font-size: 17px; font-weight: 500;
+  color: oklch(0.94 0.012 240);
+}
+.login-panel-sub {
+  margin-top: 2px;
+  font-family: ui-monospace, monospace; font-size: 10px;
+  letter-spacing: 0.06em; color: oklch(0.66 0.02 240 / 0.7);
+}
+.login-roster {
+  display: flex; flex-direction: column; gap: 7px;
+  margin: 13px 0 6px;
+}
+.login-id {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid oklch(0.72 0.02 240 / 0.14);
+  background: oklch(0.22 0.014 250 / 0.5);
+  cursor: pointer; text-align: left;
+  transition: transform 0.14s ease, border-color 0.14s, background 0.14s, box-shadow 0.14s;
+}
+.login-id:hover {
+  transform: translateX(3px);
+  border-color: oklch(0.78 0.14 var(--h, 240) / 0.6);
+  background: oklch(0.26 0.03 var(--h, 240) / 0.34);
+  box-shadow: 0 0 20px oklch(0.72 0.16 var(--h, 240) / 0.24);
+}
+.login-id-av {
+  flex: 0 0 auto;
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-size: 16px; font-weight: 500;
+  color: oklch(0.96 0.04 var(--h, 240));
+  background: oklch(0.40 0.10 var(--h, 240) / 0.34);
+  border: 1px solid oklch(0.78 0.14 var(--h, 240) / 0.55);
+  box-shadow: 0 0 12px oklch(0.72 0.16 var(--h, 240) / 0.3) inset;
+}
+.login-id-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.login-id-name { font-family: var(--serif); font-size: 14.5px; color: oklch(0.93 0.012 240); }
+.login-id-role {
+  font-family: ui-monospace, monospace; font-size: 9px;
+  letter-spacing: 0.10em; text-transform: uppercase;
+  color: oklch(0.70 0.08 var(--h, 240) / 0.85);
+}
+.login-id-go {
+  flex: 0 0 auto;
+  font-family: ui-monospace, monospace; font-size: 10.5px;
+  color: oklch(0.82 0.12 var(--h, 240));
+  opacity: 0; transform: translateX(-4px);
+  transition: opacity 0.14s, transform 0.14s;
+}
+.login-id:hover .login-id-go { opacity: 1; transform: translateX(0); }
+.login-id.primary {
+  background: oklch(0.26 0.03 var(--h, 240) / 0.4);
+  border-color: oklch(0.78 0.13 var(--h, 240) / 0.5);
+}
+.login-id.primary .login-id-go { opacity: 0.9; transform: translateX(0); }
+.login-id-email {
+  font-family: ui-monospace, monospace; font-size: 10px;
+  color: oklch(0.66 0.02 240 / 0.7);
+}
+.login-account-wrap { display: flex; flex-direction: column; gap: 7px; margin: 13px 0 6px; }
+.login-alt-toggle {
+  align-self: center; margin-top: 2px; padding: 4px 8px;
+  background: transparent; border: 0; cursor: pointer;
+  font-family: ui-monospace, monospace; font-size: 10px;
+  letter-spacing: 0.04em; color: oklch(0.68 0.04 var(--awin-hue, 240) / 0.75);
+  transition: color 0.14s;
+}
+.login-alt-toggle:hover { color: oklch(0.84 0.12 var(--awin-hue, 240)); }
+.login-account-wrap .login-roster { margin: 2px 0 0; gap: 6px; }
+.login-panel-foot {
+  padding-top: 11px;
+  border-top: 1px solid oklch(0.72 0.02 240 / 0.10);
+  text-align: center;
+  font-family: ui-monospace, monospace; font-size: 9.5px;
+  letter-spacing: 0.04em; color: oklch(0.62 0.02 240 / 0.6);
+}
+.login-foot-boot { color: oklch(0.80 0.11 75 / 0.95); }
+
+@keyframes login-panel-in {
+  0%   { opacity: 0; transform: scale(0.42) translateY(10px); filter: blur(9px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+}
+@keyframes login-panel-out {
+  0%   { opacity: 1; transform: scale(1); filter: blur(0) brightness(1); }
+  100% { opacity: 0; transform: scale(1.14); filter: blur(12px) brightness(2.4); }
+}
+
+/* The shatter canvas — spectral particles dissipating. */
+.login-shatter { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+
+/* ── Brand + presence ───────────────────────────────────────────── */
+.omega-brand {
+  position: fixed; right: 17px; bottom: 14px; z-index: 32;
+  display: flex; align-items: center; gap: 9px;
+  pointer-events: none; user-select: none;
+}
+.omega-brand-glyph {
+  font-family: var(--serif); font-size: 23px; font-weight: 400; line-height: 1;
+  color: oklch(0.86 0.04 250 / 0.82);
+  text-shadow: 0 0 14px oklch(0.70 0.10 250 / 0.4);
+}
+.omega-brand-stack { display: flex; flex-direction: column; line-height: 1.15; }
+.omega-brand-name {
+  font-family: var(--serif); font-size: 13.5px; letter-spacing: 0.04em;
+  color: oklch(0.84 0.02 250 / 0.85);
+}
+.omega-brand-by {
+  font-family: ui-monospace, monospace; font-size: 8.5px;
+  letter-spacing: 0.10em; color: oklch(0.64 0.02 250 / 0.6);
+}
+
+.omega-presence {
+  position: fixed; left: 14px; bottom: 14px; z-index: 61;
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 12px 6px 7px; border-radius: 999px;
+  background: oklch(0.16 0.014 250 / 0.78);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  border: 1px solid oklch(0.78 0.10 var(--h, 230) / 0.4);
+  box-shadow: 0 8px 22px oklch(0.03 0.02 250 / 0.45),
+    0 0 16px oklch(0.72 0.15 var(--h, 230) / 0.16);
+  cursor: pointer;
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+.omega-presence:hover {
+  border-color: oklch(0.82 0.13 var(--h, 230) / 0.6);
+  box-shadow: 0 10px 26px oklch(0.03 0.02 250 / 0.5),
+    0 0 22px oklch(0.74 0.17 var(--h, 230) / 0.28);
+}
+.omega-presence-av {
+  flex: 0 0 auto;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-size: 12px;
+  color: oklch(0.96 0.04 var(--h, 230));
+  background: oklch(0.40 0.10 var(--h, 230) / 0.4);
+  border: 1px solid oklch(0.80 0.14 var(--h, 230) / 0.6);
+}
+.omega-presence-name {
+  font-family: var(--serif); font-size: 13px; color: oklch(0.90 0.012 240);
+}
+.omega-presence-out {
+  font-family: ui-monospace, monospace; font-size: 9px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: oklch(0.66 0.02 240 / 0.6);
+  max-width: 0; overflow: hidden; white-space: nowrap;
+  transition: max-width 0.2s ease, opacity 0.2s, margin 0.2s;
+  opacity: 0;
+}
+.omega-presence:hover .omega-presence-out { max-width: 60px; opacity: 1; margin-left: 2px; }
+
+/* ── Presence chevron + profile surface ─────────────────────────── */
+.omega-presence-chev {
+  font-family: ui-monospace, monospace; font-size: 13px; line-height: 1;
+  color: oklch(0.74 0.05 var(--h, 240) / 0.8); margin-left: 1px;
+  transition: transform 0.2s ease;
+}
+.omega-presence.open .omega-presence-chev { transform: rotate(180deg); }
+
+.omega-profile-scrim { position: fixed; inset: 0; z-index: 62; }
+.omega-profile {
+  position: fixed; left: 14px; bottom: 56px; z-index: 63;
+  width: 288px; max-width: calc(100vw - 28px);
+  padding: 16px 16px 14px; border-radius: 16px;
+  background: oklch(0.15 0.012 250 / 0.86);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  border: 1px solid oklch(0.78 0.13 var(--h, 240) / 0.42);
+  box-shadow: 0 22px 60px oklch(0.02 0.02 260 / 0.6),
+    0 0 30px oklch(0.72 0.16 var(--h, 240) / 0.2),
+    inset 0 1px 0 oklch(0.95 0.02 240 / 0.1);
+  transform-origin: bottom left;
+  animation: profile-in 0.28s cubic-bezier(0.16, 0.84, 0.3, 1) both;
+  font-family: var(--serif); color: oklch(0.9 0.012 240);
+}
+@keyframes profile-in {
+  0%   { opacity: 0; transform: scale(0.78) translateY(10px); filter: blur(6px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+}
+.oprof-head {
+  display: flex; align-items: center; gap: 12px; padding-bottom: 13px;
+  border-bottom: 1px solid oklch(0.72 0.02 240 / 0.12);
+}
+.oprof-av {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; color: oklch(0.96 0.04 var(--h, 240));
+  background: oklch(0.40 0.10 var(--h, 240) / 0.36);
+  border: 1px solid oklch(0.80 0.14 var(--h, 240) / 0.6);
+  box-shadow: 0 0 14px oklch(0.72 0.16 var(--h, 240) / 0.3) inset;
+}
+.oprof-name { font-size: 16px; color: oklch(0.95 0.012 240); }
+.oprof-role {
+  font-family: ui-monospace, monospace; font-size: 9.5px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: oklch(0.72 0.08 var(--h, 240) / 0.85); margin-top: 2px;
+}
+.oprof-rows { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; }
+.oprof-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.oprof-k {
+  font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: oklch(0.62 0.02 240 / 0.7);
+}
+.oprof-v { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: oklch(0.88 0.012 240); }
+.oprof-mark { width: 14px; height: 14px; display: inline-flex; }
+.oprof-mark svg { width: 14px; height: 14px; }
+.oprof-admin { color: oklch(0.82 0.12 var(--h, 240)); }
+.oprof-prefs { padding: 11px 0 4px; border-top: 1px solid oklch(0.72 0.02 240 / 0.12); }
+.oprof-prefs-label {
+  font-family: ui-monospace, monospace; font-size: 9.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: oklch(0.6 0.02 240 / 0.7); margin-bottom: 9px;
+}
+.oprof-toggle {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: transparent; border: 0; cursor: pointer; padding: 3px 0;
+}
+.oprof-toggle-track {
+  flex: 0 0 auto; width: 34px; height: 19px; border-radius: 999px; position: relative;
+  background: oklch(0.34 0.02 240 / 0.7); border: 1px solid oklch(0.6 0.02 240 / 0.3);
+  transition: background 0.18s, border-color 0.18s;
+}
+.oprof-toggle-knob {
+  position: absolute; top: 1.5px; left: 1.5px; width: 14px; height: 14px; border-radius: 50%;
+  background: oklch(0.82 0.012 240); transition: left 0.18s, background 0.18s;
+}
+.oprof-toggle.on .oprof-toggle-track {
+  background: oklch(0.5 0.14 var(--h, 240) / 0.55); border-color: oklch(0.74 0.14 var(--h, 240) / 0.6);
+}
+.oprof-toggle.on .oprof-toggle-knob { left: 16px; background: oklch(0.95 0.06 var(--h, 240)); }
+.oprof-toggle-label { font-size: 13px; color: oklch(0.88 0.012 240); }
+.oprof-pref-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.oprof-pref-name { font-size: 13px; color: oklch(0.88 0.012 240); }
+.oprof-swatches { display: flex; gap: 7px; }
+.oprof-sw {
+  width: 20px; height: 20px; border-radius: 50%; cursor: pointer; padding: 0;
+  border: 1px solid oklch(0.72 0.02 240 / 0.4);
+  box-shadow: inset 0 0 0 1px oklch(0 0 0 / 0.25);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.oprof-sw:hover { transform: scale(1.14); }
+.oprof-sw.sel { box-shadow: 0 0 0 2px oklch(0.86 0.13 var(--h, 240)); border-color: transparent; }
+
+/* Light "space" → invert the whole field into a dark-ink-on-light negative
+   (the additive glow would otherwise wash out white). DOM chrome stays as-is;
+   the brand mark is darkened for contrast on the light ground. */
+:root[data-space-invert="on"] .omega-3d-canvas { filter: invert(1) hue-rotate(180deg); }
+
+/* ── Harmonise the chrome glass to the current space hue (App sets it) ── */
+.omega-brand-glyph {
+  color: oklch(0.86 0.05 var(--space-hue, 250) / 0.85);
+  text-shadow: 0 0 14px oklch(0.72 0.13 var(--space-hue, 250) / 0.42);
+}
+.omega-brand-name { color: oklch(0.84 0.03 var(--space-hue, 250) / 0.85); }
+.omega-profile { border-color: oklch(0.78 0.11 var(--space-hue, 250) / 0.42); }
+.status-dock { border-color: oklch(0.66 0.05 var(--space-hue, 250) / 0.22); }
+.sd-orb { box-shadow: 0 0 9px oklch(0.74 0.13 var(--space-hue, 250) / 0.55); }
+
+/* ── Full light-mode chrome on a LIGHT (inverted) space ──────────────
+   The dark glass loses all contrast on white, so flip the always-on chrome
+   to a pale glass with dark ink — intentional, gorgeous, readable. */
+:root[data-space-invert="on"] .status-dock {
+  background: oklch(0.97 0.008 var(--space-hue, 250) / 0.74) !important;
+  border-color: oklch(0.55 0.03 var(--space-hue, 250) / 0.28) !important;
+  box-shadow: 0 10px 28px oklch(0.55 0.04 250 / 0.18) !important;
+}
+:root[data-space-invert="on"] .sd-mode { color: oklch(0.26 0.03 var(--space-hue, 250)); }
+:root[data-space-invert="on"] .sd-count,
+:root[data-space-invert="on"] .sd-focus,
+:root[data-space-invert="on"] .sd-last { color: oklch(0.44 0.02 250 / 0.85); }
+
+:root[data-space-invert="on"] .omega-brand-glyph { color: oklch(0.30 0.05 250); text-shadow: none; }
+:root[data-space-invert="on"] .omega-brand-name { color: oklch(0.32 0.03 250); }
+:root[data-space-invert="on"] .omega-brand-by { color: oklch(0.46 0.02 250); }
+
+:root[data-space-invert="on"] .omega-presence {
+  background: oklch(0.97 0.01 var(--h, 250) / 0.8);
+  border-color: oklch(0.55 0.10 var(--h, 250) / 0.45);
+  box-shadow: 0 10px 26px oklch(0.5 0.04 250 / 0.18), 0 0 16px oklch(0.7 0.14 var(--h, 250) / 0.14);
+}
+:root[data-space-invert="on"] .omega-presence-name { color: oklch(0.24 0.02 250); }
+:root[data-space-invert="on"] .omega-presence-chev { color: oklch(0.45 0.04 var(--h, 250) / 0.8); }
+
+:root[data-space-invert="on"] .omega-profile {
+  background: oklch(0.975 0.008 var(--space-hue, 250) / 0.86);
+  border-color: oklch(0.55 0.09 var(--space-hue, 250) / 0.4);
+  box-shadow: 0 22px 60px oklch(0.5 0.04 250 / 0.22), 0 0 28px oklch(0.7 0.12 var(--space-hue, 250) / 0.16),
+    inset 0 1px 0 oklch(1 0 0 / 0.5);
+}
+:root[data-space-invert="on"] .oprof-head,
+:root[data-space-invert="on"] .oprof-rows,
+:root[data-space-invert="on"] .oprof-prefs { border-color: oklch(0.55 0.02 250 / 0.16); }
+:root[data-space-invert="on"] .oprof-name,
+:root[data-space-invert="on"] .oprof-toggle-label,
+:root[data-space-invert="on"] .oprof-pref-name { color: oklch(0.20 0.02 250); }
+:root[data-space-invert="on"] .oprof-v { color: oklch(0.28 0.02 250); }
+:root[data-space-invert="on"] .oprof-k,
+:root[data-space-invert="on"] .oprof-prefs-label,
+:root[data-space-invert="on"] .oprof-id-email,
+:root[data-space-invert="on"] .oprof-prefs-note { color: oklch(0.45 0.02 250 / 0.85); }
+:root[data-space-invert="on"] .oprof-toggle-track { background: oklch(0.80 0.02 250 / 0.8); border-color: oklch(0.55 0.02 250 / 0.3); }
+.oprof-prefs-note {
+  font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: 0.04em;
+  color: oklch(0.58 0.02 240 / 0.6); margin-top: 9px;
+}
+.oprof-signout {
+  width: 100%; margin-top: 12px; padding: 9px; border-radius: 10px;
+  background: oklch(0.28 0.03 var(--h, 240) / 0.4); border: 1px solid oklch(0.72 0.1 var(--h, 240) / 0.4);
+  color: oklch(0.9 0.04 var(--h, 240)); font-family: ui-monospace, monospace; font-size: 11px;
+  letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+.oprof-signout:hover { background: oklch(0.34 0.06 var(--h, 240) / 0.5); border-color: oklch(0.78 0.13 var(--h, 240) / 0.6); }
+
+/* user "reduce motion" preference — calm the UI entrance animations */
+:root[data-user-motion="reduced"] .login-mark,
+:root[data-user-motion="reduced"] .login-mark-inner,
+:root[data-user-motion="reduced"] .login-mark-glow,
+:root[data-user-motion="reduced"] .login-panel,
+:root[data-user-motion="reduced"] .login-marks-hint { animation-duration: 0.01ms !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .login-mark, .login-mark-inner, .login-mark-glow,
+  .login-panel, .login-marks-hint { animation-duration: 0.01ms; animation-iteration-count: 1; }
+}

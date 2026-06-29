@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Omega — Room</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React (pinned, with integrity) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <!-- Three.js — WebGL renderer for the AR/VR-ready Omega chamber.
+       Loaded DYNAMICALLY from JS (see src/r3d/Renderer3D.jsx) instead
+       of a <script> tag so the CSS renderer is fully alive even if
+       the CDN is slow/unreachable. The 2.5D renderer remains the
+       reference until WebGL fully matches its behavior. -->
+
+  <!-- Tweaks shell — must load before App so useTweaks/TweaksPanel exist -->
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+
+  <!-- Components (load order matters: leaves before App) -->
+  <script type="text/babel" src="src/useSpring.jsx"></script>
+  <script src="src/mockOmega.js"></script>
+  <script src="src/omegaCatalog.js"></script>
+  <script src="src/anatomyGraph.js"></script>
+  <script src="src/omegaEvents.js"></script>
+  <script src="src/omegaIntents.js"></script>
+  <script src="src/omegaState.js"></script>
+  <script src="src/omegaSession.js"></script>
+  <script src="src/omegaScheduler.js"></script>
+  <script src="src/liveOmegaBridge.js?v=20260612-bridge3"></script>
+  <script src="src/anatomyPulses.js"></script>
+  <script src="src/skillRegistry.js"></script>
+  <script src="src/omegaSurfaceAtoms.js"></script>
+  <script type="text/babel" src="src/OmegaCommands.jsx"></script>
+  <script type="text/babel" src="src/OmegaWindow.jsx"></script>
+  <script type="text/babel" src="src/LoremPlaceholder.jsx"></script>
+  <script type="text/babel" src="src/ImagePlaceholder.jsx"></script>
+  <script type="text/babel" src="src/ContentPlaceholder.jsx"></script>
+  <script type="text/babel" src="src/OmegaSurface.jsx"></script>
+  <script type="text/babel" src="src/Inspector.jsx"></script>
+  <script type="text/babel" src="src/ReasoningReceipt.jsx"></script>
+  <script type="text/babel" src="src/Agenda.jsx"></script>
+  <script type="text/babel" src="src/Attention.jsx"></script>
+  <script type="text/babel" src="src/Timeline.jsx"></script>
+  <script type="text/babel" src="src/StatusDock.jsx"></script>
+  <script type="text/babel" src="src/Taskbar.jsx"></script>
+  <script type="text/babel" src="src/Login.jsx"></script>
+  <script type="text/babel" src="src/ChatWindow.jsx"></script>
+  <script type="text/babel" src="src/Anatomy.jsx"></script>
+  <script type="text/babel" src="src/CoreBeams.jsx"></script>
+  <script type="text/babel" src="src/OmegaCore.jsx"></script>
+  <script type="text/babel" src="src/EnterHint.jsx"></script>
+  <script type="text/babel" src="src/InputRidge.jsx"></script>
+  <script type="text/babel" src="src/Room.jsx"></script>
+
+  <!-- WebGL renderer (Three.js). Loads after the data layer so it
+       can subscribe to omegaGraph + omegaEvents on init. -->
+  <script src="src/r3d/positions.js"></script>
+  <script src="src/r3d/layout.js"></script>
+  <script src="src/r3d/core.js"></script>
+  <!-- §32 — mirrorBall.js replaces liquidMetal.js: her body is one
+       perfect chrome sphere (seamless reflections by construction).
+       liquidMetal.js stays on disk as the dormant tube-body reference.
+       §33 — fluidInterior.js: the GPU fluid (flowing lava) sealed inside
+       her sphere; must load before mirrorBall.js. -->
+  <script src="src/r3d/fluidInterior.js"></script>
+  <script src="src/r3d/mirrorBall.js"></script>
+  <script src="src/r3d/bloom.js"></script>
+  <script src="src/r3d/cameraRig.js"></script>
+  <script src="src/r3d/scene.js"></script>
+  <script type="text/babel" src="src/r3d/Renderer3D.jsx"></script>
+  <script type="text/babel" src="src/DevConsole.jsx"></script>
+
+  <script type="text/babel" src="src/App.jsx?v=20260612-chat-live1"></script>
+</body>
+</html>

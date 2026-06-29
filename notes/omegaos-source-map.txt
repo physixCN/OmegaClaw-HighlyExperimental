@@ -1,0 +1,71 @@
+Source HEAD: c1d69781e4b9aa9e941705c02a7bdff06ad86bd5
+
+Relevant commits:
+8d23ada Modularize optional organs and fix command side effects
+dfec4c3 Remove local web surfaces from readiness branch
+eadd1f0 Add Live webhost WIP branch
+9738544 Harden live webhost publishing affordances
+e17363d core: reconcile runtime syntax and energy membrane
+e11f494 webhost: OmegaOS surface + event membrane (flock+rotation) + privacy gating
+c1d6978 omegaos: curation lens — Omega's real mind, curated by her, shown to family
+
+Included files:
+web/omega-os-claude/index.html
+web/omega-os-claude/src/Agenda.jsx
+web/omega-os-claude/src/Anatomy.jsx
+web/omega-os-claude/src/App.jsx
+web/omega-os-claude/src/Attention.jsx
+web/omega-os-claude/src/ChatWindow.jsx
+web/omega-os-claude/src/ContentPlaceholder.jsx
+web/omega-os-claude/src/CoreBeams.jsx
+web/omega-os-claude/src/DevConsole.jsx
+web/omega-os-claude/src/EnterHint.jsx
+web/omega-os-claude/src/ImagePlaceholder.jsx
+web/omega-os-claude/src/InputRidge.jsx
+web/omega-os-claude/src/Inspector.jsx
+web/omega-os-claude/src/Login.jsx
+web/omega-os-claude/src/LoremPlaceholder.jsx
+web/omega-os-claude/src/OmegaCommands.jsx
+web/omega-os-claude/src/OmegaCore.jsx
+web/omega-os-claude/src/OmegaSurface.jsx
+web/omega-os-claude/src/OmegaWindow.jsx
+web/omega-os-claude/src/ReasoningReceipt.jsx
+web/omega-os-claude/src/Room.jsx
+web/omega-os-claude/src/StatusDock.jsx
+web/omega-os-claude/src/Taskbar.jsx
+web/omega-os-claude/src/Timeline.jsx
+web/omega-os-claude/src/anatomyGraph.js
+web/omega-os-claude/src/anatomyPulses.js
+web/omega-os-claude/src/liveOmegaBridge.js
+web/omega-os-claude/src/mockOmega.js
+web/omega-os-claude/src/omegaCatalog.js
+web/omega-os-claude/src/omegaEvents.js
+web/omega-os-claude/src/omegaIntents.js
+web/omega-os-claude/src/omegaScheduler.js
+web/omega-os-claude/src/omegaSession.js
+web/omega-os-claude/src/omegaState.js
+web/omega-os-claude/src/omegaSurfaceAtoms.js
+web/omega-os-claude/src/r3d/Renderer3D.jsx
+web/omega-os-claude/src/r3d/bloom.js
+web/omega-os-claude/src/r3d/cameraRig.js
+web/omega-os-claude/src/r3d/core.js
+web/omega-os-claude/src/r3d/fluidInterior.js
+web/omega-os-claude/src/r3d/layout.js
+web/omega-os-claude/src/r3d/liquidMetal.js
+web/omega-os-claude/src/r3d/mirrorBall.js
+web/omega-os-claude/src/r3d/positions.js
+web/omega-os-claude/src/r3d/scene.js
+web/omega-os-claude/src/skillRegistry.js
+web/omega-os-claude/src/useSpring.jsx
+web/omega-os-claude/styles.css
+web/omega-os-claude/tweaks-panel.jsx
+web/omega-os/index.html
+web/omega-os/package-lock.json
+web/omega-os/package.json
+web/omega-os/src/api/OmegaApi.js
+web/omega-os/src/main.jsx
+web/omega-os/src/scene/OmegaRoom.jsx
+web/omega-os/src/scene/SplineStage.js
+web/omega-os/src/styles.css
+web/omega-os/src/ui/WindowManager.js
+web/omega-os/vite.config.js
