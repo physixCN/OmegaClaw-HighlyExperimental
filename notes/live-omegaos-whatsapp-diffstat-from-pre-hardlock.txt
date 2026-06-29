@@ -1,0 +1,20 @@
+ docs/reference-channels.md                         |   6 +
+ docs/reference-omegaclaw-module-contract.md        |  27 ++
+ modules/channel_router/affordance.metta            |  12 +-
+ modules/channel_router/catalog.metta               |  11 +-
+ modules/channel_router/entry.metta                 |   1 -
+ modules/channel_router/module.toml                 |   1 -
+ modules/channel_router/signatures.metta            |   1 -
+ modules/channel_router/skills.metta                |  14 +-
+ modules/channel_router/src/channel_delivery.py     |  93 +++-
+ modules/channel_router/src/router.py               | 509 ++++++++++++++-------
+ modules/channel_whatsapp/affordance.metta          |  49 +-
+ modules/channel_whatsapp/catalog.metta             |  16 +-
+ modules/channel_whatsapp/entry.metta               |   6 -
+ modules/channel_whatsapp/module.toml               |   6 -
+ modules/channel_whatsapp/src/whatsapp.py           | 120 +++--
+ .../src/whatsapp_bridge/bridge.mjs                 |   8 +-
+ src/webhost.py                                     | 408 ++++++++++++++++-
+ tests/test_channel_delivery_dedup.py               | 184 ++++++++
+ tests/test_omega_surface.py                        |  81 +++-
+ 19 files changed, 1228 insertions(+), 325 deletions(-)

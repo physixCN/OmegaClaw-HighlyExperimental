@@ -1,0 +1,86 @@
+ee74d60 initial commit
+a3bdef7 with this Websearch cant crash
+122eec7 Mattermost integration
+f67a1ad Fix parenthesis
+86613ca mattermost fix
+b29c6b5 Update from depl version
+ba06b35 Update: improvements from deployed version
+0dc35ae Interface buffering
+87ff618 Interface buffering
+b030c6a Update: major updates and switch to MiniMax
+a0105b8 fixed
+fee762a rough start for IRC image
+8458934 rebranding MeTTaClaw to OmegaClaw
+a0eaba2 Add one-time commchannel authentication gate
+07a9ffc fix irc connection problems
+aa3ebbf change to omegaclaw
+5b7c588 fixed folder names
+83ffe13 ##omegaclaw default channel
+ccf2c77 Additions ported over
+4ae8eeb This if should not have 3 args indeed, the feedback is not needed for send command anyways
+afc1e5c Update: removed unused var assignment
+f5094ab Anti-spam prompt and duplicate send filter re-added
+3f0bd59 Add comprehensive documentation - intro, tutorials, and api reference. Incorporated information from OmegaClaw: Reasoning Whitepaper
+fd60a8a Do not cut off newlines, and split too long messages into multiple send commands
+4f13e76 Update: avoid excess flood, send newlines also as separate messages
+e24d4ff Remove tutorial 01, rename others
+1b60d13 Don't break messages to IRC mid-word
+e9e9e49 Print exception reason
+f306193 Add Telegram channel support with token-only bootstrap
+ae093a3 Add Slack communication channel support
+a49d447 Allow Slack channel auto-bind via auth message
+6cb4e30 Handle Slack 429 backoff and reduce auto-bind polling load
+3507821 Adjust Slack poll interval defaults and clamp behavior
+6603a54 Add test communication channel
+ba9a454 Fix errors, add first test as an example of usage
+310eaed Fix send dispatch to mattermost channel
+ddac831 Make web-search the canonical core web surface
+8d23ada Modularize optional organs and fix command side effects
+e51a776 Align context history view with live runtime
+276afd6 Harden symbolic cleanup affordances
+97a96ce Harden runtime persistence and cleanup affordances
+4943fe6 Harden skill cards and binary file reads
+dfec4c3 Remove local web surfaces from readiness branch
+3f1fec1 Normalize v0.01a private module surface
+69acf93 Clean module profiles and symbolic sense routing
+879fbf8 Add spin counter and WhatsApp route guard
+6d73d3c Add structured channel event boundary
+e61f3e9 Finalize v0.01a docs and audit gates
+ca1c395 Modularize channel adapters and web search
+7a62018 Refresh reviewer docs and patch series
+e91be25 Harden interactive installers
+a5e9aa5 Harden WhatsApp route guards
+85d83e2 Harden Telegram send guards
+77bc1e4 Clarify WhatsApp file route affordances
+4ae8037 Configure channel before router startup
+d7d2176 Recover live drift guardrails and WhatsApp state
+f446b92 Stabilize live runtime loop hooks
+eadd1f0 Add Live webhost WIP branch
+84df3ec Route live memory through runtime root
+19a0301 Keep WhatsApp runtime state out of source tree
+e0ef7cb Fail closed when saving unloaded runtime spaces
+d2305d1 Tighten skill discovery and artifact recall
+653a768 Suppress duplicate WhatsApp sends
+1773a50 Retire legacy channel and no-agentverse facades
+62e1fe3 Generalize multi-channel routing and Telegram inboxes
+9738544 Harden live webhost publishing affordances
+de70259 Stabilize live continuity and channel traces
+2bedbc0 Stabilize live runtime cleanup boundaries
+0bc4ec6 Stabilize automatic salience attention
+26dda38 Stabilize loop attention and channel membranes
+973224a docs(prompt): reconcile OmegaClaw mode and syntax guidance
+e17363d core: reconcile runtime syntax and energy membrane
+2a4227f modules: reconcile channel and specialist adapters
+3ce1159 tests: reconcile contracts and smoke coverage
+becb4f2 channels: quote the message placeholder in send affordances
+005c69a channels: unmute long messages and pin the control route to the operator
+565f538 substrate: prose is private thinking and results report truthfully
+1b13383 channels: suppress terminal duplicate re-deliveries and cap replays
+65794f0 syntax: command-shaped lines escape the whole-prose fold
+abb2836 memory: align Chroma isolation with workspace roots
+4b83966 runtime: gate Telegram sends on adapter readiness
+1f04650 whatsapp: keep missed-while-down messages unread for the boot digest
+0c11a5a channels: hard-lock primary to WhatsApp + OmegaOS web channel + observe-surface
+e11f494 webhost: OmegaOS surface + event membrane (flock+rotation) + privacy gating
+dc824d1 tests+catalog: reconcile to WhatsApp-hard-lock channel contract + OmegaOS
+c1d6978 omegaos: curation lens — Omega's real mind, curated by her, shown to family
