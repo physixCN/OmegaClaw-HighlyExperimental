@@ -1,0 +1,19 @@
+ .gitignore                             |   2 +
+ admin/instances/README.md              |  82 ++++++++++++++
+ admin/instances/codex-omega.env        |  11 ++
+ admin/instances/jons-omega.env         |  11 ++
+ examples/python_typed_returns.metta    |  31 ++++++
+ examples/string_escape_roundtrip.metta |  20 ++++
+ python/petta.py                        |  10 +-
+ run.sh                                 | 191 ++++++++++++++++++++++++++++++++-
+ scripts/check-chroma-health.sh         |  47 ++++++++
+ scripts/run-codex-omega-mock.sh        |   6 ++
+ scripts/run-codex-omega.sh             |  62 +++++++++++
+ scripts/run-jons-omega.sh              |  90 ++++++++++++++++
+ scripts/run-webhost.sh                 |  24 +++++
+ scripts/snapshot-jon-to-codex-omega.sh |  36 +++++++
+ src/filereader.pl                      |  13 ++-
+ src/metta.pl                           |  48 ++++++++-
+ src/parser.pl                          |   1 +
+ src/translator.pl                      |   4 +-
+ 18 files changed, 667 insertions(+), 22 deletions(-)

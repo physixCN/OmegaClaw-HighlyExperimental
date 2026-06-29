@@ -1,0 +1,13 @@
+7bf032c Track local Omega Live deployment launcher
+72902e1 Document and isolate Omega instance topology
+d0e3c59 parser: make string serialization round-trip safe
+8c8b722 interop: typed Python return contracts at the py-call membrane
+460a84f deployment: isolate live workspaces and webhost runtime
+fb55035 deployment: expose workspace Chroma dependency to Janus
+e2f7871 deployment: require workspace Chroma dependency identity
+42b33a4 deployment: source live Telegram runtime secret
+a96439e runtime: reduce catch-all must rethrow time limits (reduction fuse)
+
+Status:
+?? OMEGACLAW_INDEX_LOCATION.txt
+?? OMEGACLAW_RUNBOOK_LOCATION.txt
