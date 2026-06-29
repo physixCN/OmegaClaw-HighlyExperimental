@@ -1,0 +1,20 @@
+ M src/webhost.py
+?? src/backups/
+
+Uncommitted diffstat:
+ src/webhost.py | 1733 +++++++++++++++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 1669 insertions(+), 64 deletions(-)
+
+Backup snapshots:
+webhost-before-browser-engine-20260627T1810Z.py
+webhost-before-browser-per-user-20260627T112603Z.py
+webhost-before-browser-security-pass-20260627T1842Z.py
+webhost-before-browser-stream-20260627T142451Z.py
+webhost-before-display-20260627T144040Z.py
+webhost-before-google-oauth-20260627T1828Z.py
+webhost-before-os-browser-proxy-20260627T102834Z.py
+webhost-before-os-browser-proxy-fetch-shim-20260627T1033Z.py
+webhost-before-os-browser-proxy-nav-shim-20260627T1743Z.py
+webhost-before-os-cleanup-20260627T120941Z.py
+webhost-before-patch1-actions-.py
+webhost-before-patch1-status-20260627T071913Z.py
