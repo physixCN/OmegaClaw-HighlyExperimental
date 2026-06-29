@@ -40,6 +40,7 @@ Old generated review bundles, uploaded as patch text:
 
 Later live-only navigation branches:
 
+- `exp-omegaos-ui`
 - `exp-live-omegaos-whatsapp-hardlock`
 - `exp-live-webhost-wip-browser-oauth`
 - `exp-appliance-installers`
